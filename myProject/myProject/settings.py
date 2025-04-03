@@ -25,7 +25,13 @@ SECRET_KEY = 'django-insecure-8wlibv%%hz+roc0izv)cj)7b%*u0+0wiv_bl+boe@k5y9hkmrr
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    'librarychatbot-production.up.railway.app',
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+]
+
 
 
 # Application definition

@@ -1,0 +1,124 @@
+{% extends "partials/base.html" %}
+{% load static %}
+{% block title %}Library AI Chatbot{% endblock %}
+
+{% block content %}
+<style>
+    h2 {
+      text-align: center;
+      color: #025450;
+      margin-bottom: 20px;
+    }
+
+    table {
+      width: 100%;
+      max-width: 1000px;
+      margin: auto;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+    }
+
+    th, td {
+      padding: 16px 20px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+
+    th {
+      background-color: #025450;
+      color: white;
+      font-weight: 600;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background-color: #f9f9f9;
+    }
+
+    form {
+      display: inline;
+    }
+
+    button {
+      background: #cc0000;
+      color: white;
+      padding: 6px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+
+    button:hover {
+      background-color: #a80000;
+    }
+
+    @media (max-width: 768px) {
+      table, thead, tbody, th, td, tr {
+        display: block;
+        width: 100%;
+      }
+      thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+      }
+      tr {
+        margin-bottom: 1rem;
+        background: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        border-radius: 10px;
+        padding: 14px;
+      }
+      td {
+        border: none;
+        padding: 10px 0;
+        position: relative;
+      }
+      td::before {
+        content: attr(data-label);
+        font-weight: bold;
+        position: absolute;
+        left: 20px;
+        color: #025450;
+      }
+    }
+</style>
+{% include "partials/logged_in_header.html" %}
+<h2>👥 All Registered Users</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Username</th>
+      <th>Role</th>
+      <th>Email</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for user in users %}
+    <tr>
+      <td>{{ user.username }}</td>
+      <td>{% if user.is_staff %}Librarian{% else %}Student{% endif %}</td>
+      <td>{{ user.email }}</td>
+      <td>
+        {% if not user.is_superuser %}
+        <form method="POST" action="{% url 'revoke_user' user.id %}" style="display:inline">
+          {% csrf_token %}
+          <button type="submit" onclick="return confirm('Remove {{ user.username }}?')">
+            <i class="fas fa-user-slash"></i> Revoke
+          </button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,180 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}KaAI Portal{% endblock %}</title>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f5f6fa;
+      margin: 0;
+    }
+
+    .page-container {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    /* Header Section */
+    .bsu-header {
+      background: url('{% static "images/header_background2.png" %}') no-repeat center center;
+      background-size: cover;
+      padding-top: 30px;
+      padding-bottom: 0;
+      color: black;
+      overflow: hidden;
+      height: 282px;
+      width: 100%;
+    }
+
+    .bsu-header-content,
+    .bsu-blue-bar {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    .bsu-header-content {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .bsu-logo {
+      height: 90px;
+    }
+
+    .bsu-text-group {
+      line-height: 1.4;
+    }
+
+    .bsu-title {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 800;
+    }
+
+    .bsu-subtitle {
+      margin: 0;
+      font-size: 16px;
+      color: #d11d27;
+      font-weight: 600;
+    }
+
+    .bsu-portal {
+      margin: 10px 0 0;
+      font-size: 38px;
+      font-weight: 900;
+    }
+
+    .bsu-blue-bar {
+      margin-top: 128px;
+      background-color: #0074D9;
+      color: white;
+      text-align: center;
+      padding: 8px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    /* Login Box */
+    .body_container {
+      max-width: 600px;
+      background-color: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      margin: 40px auto;
+    }
+
+    .header_body_container {
+      background: linear-gradient(to right, #cc0000, #ffcc00);
+      color: white;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header_body_container img {
+      height: 60px;
+    }
+
+    .mascot {
+      height: 60px;
+    }
+
+    .main {
+      padding: 30px;
+    }
+
+    .main h2 {
+      margin-bottom: 20px;
+      color: #cc0000;
+      text-align: center;
+    }
+
+    .main input {
+      width: 95%;
+      padding: 12px;
+      margin: 10px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+
+    .main button {
+      width: 100%;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 12px;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+
+    .main button:hover {
+      background-color: #0056b3;
+    }
+
+    .footer-links {
+      margin-top: 15px;
+      text-align: center;
+    }
+
+    .footer-links a {
+      color: #cc0000;
+      text-decoration: none;
+      margin: 0 10px;
+    }
+
+    /* Responsive Tweaks */
+    @media (max-width: 768px) {
+      .bsu-header-content {
+        flex-direction: column;
+        text-align: center;
+      }
+
+      .bsu-logo {
+        margin-bottom: 10px;
+      }
+    }
+  </style>
+
+  {% block extra_css %}{% endblock %}
+</head>
+
+<body>
+  <div class="page-container">
+    
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

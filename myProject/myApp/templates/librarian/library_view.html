@@ -1,0 +1,335 @@
+{% extends "partials/base.html" %}
+{% load static %}
+{% block title %}Library AI Chatbot{% endblock %}
+
+{% block content %}
+<style>
+    h1 {
+      text-align: center;
+      color: #025450;
+      margin-bottom: 30px;
+    }
+    .table-container {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      max-width: 1200px;
+      margin: 0 auto;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 800px;
+    }
+    th, td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid #eaeaea;
+    }
+    th {
+      background-color: #025450;
+      color: white;
+      text-transform: uppercase;
+      font-size: 0.9rem;
+      letter-spacing: 0.5px;
+    }
+    tr:hover { background-color: #f7fafd; }
+    a { color: #007bff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .no-file { color: #cc0000; }
+
+    .actions {
+      margin: 20px auto;
+      text-align: center;
+    }
+    .actions button {
+      background: #cc0000;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin: 0 5px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .actions button:hover { background-color: #990000; }
+
+    .search-bar {
+      text-align: center;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    .search-bar input {
+      padding: 10px;
+      width: 300px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    #search-results {
+      position: absolute;
+      width: 300px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      z-index: 999;
+      margin-top: 5px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: left;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    #search-results li {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+    }
+
+    #search-results li:hover {
+      background-color: #f0f0f0;
+    }
+
+    .edit-button {
+      background: #025450;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .edit-button:hover {
+      background: #027f7a;
+    }
+
+    .modal-content {
+      background-color: #fff;
+      margin: 10% auto;
+      padding: 25px 30px;
+      border-radius: 10px;
+      width: 90%;
+      max-width: 500px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.2);
+    }
+    .modal-content input, .modal-content select {
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      margin-bottom: 16px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    .modal-content button[type="submit"] {
+      background-color: #025450;
+      color: white;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .modal-content button[type="submit"]:hover {
+      background-color: #027f7a;
+    }
+
+    .header {
+      position: absolute;
+      top: 20px;
+      right: 30px;
+    }
+
+    .dropdown {
+      position: relative;
+      display: inline-block;
+    }
+
+    .dropbtn {
+      background-color: #007bff;
+      color: white;
+      padding: 10px 20px;
+      font-size: 14px;
+      border: none;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+
+    .dropdown-content {
+      display: none;
+      position: absolute;
+      right: 0;
+      background-color: white;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      min-width: 160px;
+      z-index: 1;
+      border-radius: 6px;
+    }
+
+    .dropdown-content a,
+    .dropdown-content button {
+      color: black;
+      padding: 12px 16px;
+      text-decoration: none;
+      display: block;
+      background: none;
+      border: none;
+      width: 100%;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .dropdown-content a:hover,
+    .dropdown-content button:hover {
+      background-color: #f1f1f1;
+    }
+
+    .dropdown:hover .dropdown-content {
+      display: block;
+    }
+</style>
+{% include "partials/logged_in_header.html" %}
+
+<h1>📚 Thesis Library {% if selected_program %}- {{ selected_program.name }} {% endif %}</h1>
+
+<div class="search-bar">
+  <input type="text" id="live-search" placeholder="🔍 Type to search...">
+  <ul id="search-results" style="list-style: none; padding: 0;"></ul>
+</div>
+
+<form method="POST" action="/delete-theses/">
+  {% csrf_token %}
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="checkAll"></th>
+          <th>Title</th>
+          <th>Authors</th>
+          <th>Program</th>
+          <th>Year</th>
+          <th>Access File</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for thesis in page_obj %}
+        <tr>
+          <td><input type="checkbox" name="thesis_ids" value="{{ thesis.id }}"></td>
+          <td>{{ thesis.title }}</td>
+          <td>{{ thesis.authors }}</td>
+          <td>{{ thesis.program.name }}</td>
+          <td>{{ thesis.year }}</td>
+          <td>
+            {% if thesis.gdrive_url %}
+              <a href="{{ thesis.gdrive_url }}" target="_blank">📁 Google Drive</a>
+            {% else %}
+              <span class="no-file">❌ No file</span>
+            {% endif %}
+          </td>
+          <td>
+            <button type="button" class="edit-button" onclick="openEditModal({{ thesis.id }}, '{{ thesis.title|escapejs }}', '{{ thesis.authors|escapejs }}', {{ thesis.program.id }}, {{ thesis.year }})">✏️ Edit</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="actions">
+    <button type="submit">🗑️ Delete Selected</button>
+    {% if page_obj.has_previous %}
+      <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}" class="edit-button">⬅ Prev</a>
+    {% endif %}
+    Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+    {% if page_obj.has_next %}
+      <a href="?page={{ page_obj.next_page_number }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}" class="edit-button">Next ➡</a>
+    {% endif %}
+  </div>
+</form>
+
+<!-- Edit Modal -->
+<div id="editModal" class="modal" style="display:none; position: fixed; top:0; left:0; width:100%; height:100%; background-color: rgba(0,0,0,0.5);">
+  <div class="modal-content">
+    <span onclick="closeEditModal()" style="float:right; font-size:24px; cursor:pointer;">&times;</span>
+    <h3>✏️ Edit Thesis</h3>
+    <form method="POST" action="/edit-thesis/">
+      {% csrf_token %}
+      <input type="hidden" name="id" id="edit-id">
+      <label>Title:</label>
+      <input type="text" name="title" id="edit-title" required>
+      <label>Authors:</label>
+      <input type="text" name="authors" id="edit-authors" required>
+      <label>Program:</label>
+      <select name="program" id="edit-program" required>
+        {% for program in programs %}
+          <option value="{{ program.id }}">{{ program.name }}</option>
+        {% endfor %}
+      </select>
+      <label>Year:</label>
+      <input type="number" name="year" id="edit-year" required>
+      <br><br>
+      <button type="submit">Save Changes</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  document.getElementById('checkAll').addEventListener('change', function () {
+    document.querySelectorAll('input[name="thesis_ids"]').forEach(cb => cb.checked = this.checked);
+  });
+
+  function openEditModal(id, title, authors, programId, year) {
+    document.getElementById('edit-id').value = id;
+    document.getElementById('edit-title').value = title;
+    document.getElementById('edit-authors').value = authors;
+    document.getElementById('edit-program').value = programId;
+    document.getElementById('edit-year').value = year;
+    document.getElementById('editModal').style.display = 'block';
+  }
+
+  function closeEditModal() {
+    document.getElementById('editModal').style.display = 'none';
+  }
+
+  // 🔍 AJAX Live Search with Debounce
+  let debounceTimeout;
+  const searchInput = document.getElementById("live-search");
+  const resultsList = document.getElementById("search-results");
+
+  searchInput.addEventListener("input", function () {
+    const query = this.value;
+    clearTimeout(debounceTimeout);
+    resultsList.innerHTML = "";
+
+    if (query.length === 0) return;
+
+    debounceTimeout = setTimeout(() => {
+      fetch(`/search-theses/?q=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(results => {
+          resultsList.innerHTML = "";
+          results.forEach(thesis => {
+            const item = document.createElement("li");
+            item.innerHTML = `
+              <a href="/thesis-library/?search=${encodeURIComponent(thesis.title)}">
+                <strong>${thesis.title}</strong><br>
+                <small>by ${thesis.authors} (${thesis.year})</small>
+              </a>
+            `;
+            resultsList.appendChild(item);
+          });
+        });
+    }, 300);
+  });
+
+  // Hide results on outside click
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".search-bar")) {
+      resultsList.innerHTML = "";
+    }
+  });
+</script>
+{% endblock %}

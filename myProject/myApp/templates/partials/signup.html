@@ -1,0 +1,129 @@
+<!-- templates/partials/signup.html -->
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign Up - KaAI Portal</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f6fa;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .body_container {
+            width: 100%;
+            max-width: 600px;
+            background-color: #fff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            background: linear-gradient(to right, #cc0000, #ffcc00);
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header img {
+            height: 60px;
+        }
+
+        .mascot {
+            height: 60px;
+        }
+
+        .main {
+            padding: 30px;
+        }
+
+        .main h2 {
+            margin-bottom: 20px;
+            color: #cc0000;
+            text-align: center;
+        }
+
+        .main input {
+            width: 95%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .main button {
+            width: 100%;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            padding: 12px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .main button:hover {
+            background-color: #218838;
+        }
+
+        .footer-links {
+            margin-top: 15px;
+            text-align: center;
+        }
+
+        .footer-links a {
+            color: #cc0000;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+
+        .error {
+            color: red;
+            text-align: center;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="body_container">
+        <div class="header">
+            <img src="{% static 'images/logo.png' %}" alt="Logo">
+            <strong>KaAI Student Portal</strong>
+            <img src="{% static 'images/kaai.png' %}" alt="Mascot" class="mascot">
+        </div>
+
+        <div class="main">
+            <h2>Create Your Account</h2>
+
+            {% if error %}
+                <p class="error">{{ error }}</p>
+            {% endif %}
+
+            <form method="POST">
+                {% csrf_token %}
+                <input type="text" name="username" placeholder="Username" required>
+                <input type="email" name="email" placeholder="Email Address" required>
+                <input type="password" name="password1" placeholder="Password" required>
+                <input type="password" name="password2" placeholder="Confirm Password" required>
+                <button type="submit">Sign Up</button>
+            </form>
+
+            <div class="footer-links">
+                <a href="{% url 'login' %}">Already have an account? Login</a>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

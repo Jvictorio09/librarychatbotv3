@@ -1,0 +1,324 @@
+{% load static %}
+<div class="bsu-user-header">
+  <div class="top-bar">
+    <div class="left">
+      <img src="{% static 'images/logo.png' %}" alt="BSU Logo">
+      <span>Batangas State University</span>
+    </div>
+    <div class="right">
+      <div id="date-display"></div>
+      <div id="time-display"></div>
+
+      <div class="dropdown">
+        <button class="user-info">
+          <img src="{% static 'images/kaai.png' %}" alt="Avatar">
+          <span>{{ request.user.email }}</span>
+          <i class="fas fa-caret-down"></i>
+        </button>
+      
+        <div class="dropdown-content">
+          {% if request.user.is_staff %}
+            <a href="/librarian/">
+              <i class="fas fa-book"></i> Librarian Dashboard
+            </a>
+          {% endif %}
+      
+          <button type="button" onclick="openPasswordModal()">
+            <i class="fas fa-key"></i> Change Password
+          </button>
+      
+          <form method="POST" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button type="submit">
+              <i class="fas fa-power-off"></i> Sign-out
+            </button>
+          </form>
+        </div>
+      </div>
+      
+      
+    </div>
+  </div>
+</div>
+
+<div id="passwordModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closePasswordModal()">&times;</span>
+    <h2>Change Password</h2>
+    <form id="passwordChangeForm">
+      {% csrf_token %}
+      <label>Current Password</label>
+      <input type="password" name="old_password" required>
+    
+      <label>New Password</label>
+      <input type="password" name="new_password1" required>
+    
+      <label>Confirm New Password</label>
+      <input type="password" name="new_password2" required>
+    
+      <div id="password-error" style="color: red; margin-top: 10px;"></div>
+      <div id="password-success" style="color: green; margin-top: 10px;"></div>
+    
+      <button type="submit">Update Password</button>
+    </form>
+    
+  </div>
+</div>
+
+<style>
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 9999;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
+.modal-content {
+  background-color: #fff;
+  margin: 10% auto;
+  padding: 30px 20px;
+  border: 1px solid #888;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  text-align: center;
+  color: #cc0000;
+}
+
+.modal-content label {
+  display: block;
+  margin-top: 10px;
+  font-weight: 500;
+}
+
+.modal-content input {
+  width: 100%;
+  padding: 10px;
+  margin-top: 5px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+}
+
+.modal-content button {
+  background-color: #025450;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  width: 100%;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.modal-content button:hover {
+  background-color: #01736f;
+}
+
+.close {
+  position: absolute;
+  right: 15px;
+  top: 10px;
+  font-size: 24px;
+  color: #999;
+  cursor: pointer;
+}
+
+.bsu-user-header {
+  position: sticky;
+  top: 0;
+  z-index: 999;
+  font-family: 'Segoe UI', sans-serif;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.top-bar {
+  background-color: #2c2f38;
+  color: white;
+  padding: 12px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.top-bar .left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.top-bar .left img {
+  height: 36px;
+}
+
+.top-bar .left span {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.top-bar .right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+#date-display {
+  font-size: 13px;
+  text-align: right;
+}
+
+#time-display {
+  font-weight: bold;
+  font-size: 16px;
+  text-align: right;
+}
+
+/* Dropdown */
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.user-info img {
+  height: 32px;
+  width: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid #ddd;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  right: 0;
+  background-color: white;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  min-width: 180px;
+  z-index: 999;
+  border-radius: 6px;
+  padding: 10px 0;
+}
+
+.dropdown-content a,
+.dropdown-content button {
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: #333;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.dropdown-content a:hover,
+.dropdown-content button:hover {
+  background-color: #f5f5f5;
+  color: #cc0000;
+}
+
+.dropdown:hover .dropdown-content {
+  display: block;
+}
+</style>
+
+<script>
+  function updateDateTime() {
+    const now = new Date();
+    const dateOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+
+    document.getElementById('date-display').innerText = now.toLocaleDateString('en-US', dateOptions);
+    document.getElementById('time-display').innerText = now.toLocaleTimeString('en-US', timeOptions);
+  }
+
+  setInterval(updateDateTime, 1000);
+  window.onload = updateDateTime;
+
+  function openPasswordModal() {
+  document.getElementById('passwordModal').style.display = 'block';
+}
+
+function closePasswordModal() {
+  document.getElementById('passwordModal').style.display = 'none';
+}
+
+// Optional: Close modal when clicking outside
+window.onclick = function(event) {
+  const modal = document.getElementById('passwordModal');
+  if (event.target === modal) {
+    modal.style.display = 'none';
+  }
+}
+
+function getCSRFToken() {
+  return document.querySelector('[name=csrfmiddlewaretoken]').value;
+}
+
+document.getElementById('passwordChangeForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const form = e.target;
+  const errorDiv = document.getElementById('password-error');
+  const successDiv = document.getElementById('password-success');
+
+  errorDiv.innerText = '';
+  successDiv.innerText = '';
+
+  const formData = new FormData(form);
+  const data = Object.fromEntries(formData.entries());
+
+  try {
+    const response = await fetch("{% url 'ajax_change_password' %}", {
+      method: "POST",
+      headers: {
+        "X-CSRFToken": getCSRFToken(),
+      },
+      body: formData
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      successDiv.innerText = "✅ Password updated successfully!";
+      setTimeout(() => {
+        closePasswordModal();
+        form.reset();
+      }, 1500);
+    } else {
+      const errorData = result.errors;
+      const parsed = JSON.parse(errorData);
+      const messages = Object.values(parsed).map(err => err.map(e => e.message).join(', ')).join(' | ');
+      errorDiv.innerText = `⚠️ ${messages}`;
+    }
+  } catch (err) {
+    errorDiv.innerText = "Something went wrong. Please try again.";
+    console.error(err);
+  }
+});
+</script>

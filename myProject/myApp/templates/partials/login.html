@@ -1,0 +1,38 @@
+{% extends "partials/base.html" %}
+{% load static %}
+
+{% block title %}Login - KaAI Portal{% endblock %}
+
+{% block content %}
+{% include "partials/header.html" %}
+
+<!-- 🔐 Login Box -->
+<div class="body_container">
+  <div class="header_body_container">
+    <img src="{% static 'images/logo.png' %}" alt="Logo">
+    <strong>KaAI Portal</strong>
+    <img src="{% static 'images/kaai.png' %}" alt="Mascot" class="mascot">
+  </div>
+
+  <div class="main">
+    <h2>Login to Your Account</h2>
+
+    {% if error %}
+      <p style="color:red; text-align:center;">{{ error }}</p>
+    {% endif %}
+
+    <form method="POST">
+      {% csrf_token %}
+      <input type="text" name="username" placeholder="Username" required>
+      <input type="password" name="password" placeholder="Password" required>
+      <button type="submit">Sign In</button>
+    </form>
+
+    <div class="footer-links">
+      <a href="{% url 'password_reset_custom' %}">Forgot password?</a> |
+      <a href="{% url 'signup' %}">Create an account</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

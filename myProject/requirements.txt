@@ -100,6 +100,6 @@ zope-interface==7.2
 
 flower==2.0.1 
 humanize==4.12.2 
-prometheus==client-0.21.1 
+prometheus-client==0.21.1 
 pytz==2025.2 
 tornado==6.4.2

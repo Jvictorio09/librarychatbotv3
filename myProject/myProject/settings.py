@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'cloudinary_storage',
     'myApp.apps.MyAppConfig',
     'channels',
+    'whitenoise',
 ]
 
 MIDDLEWARE = [

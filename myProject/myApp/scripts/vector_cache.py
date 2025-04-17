@@ -73,6 +73,7 @@ def upload_to_gdrive_folder(file_data, filename, folder_name, root_folder="thesi
     print(f"✅ Uploaded: {filename} → {file_link}")
     return file_link
 
+# ⬇️ Download file by name (from a folder)
 import requests
 
 def download_drive_file_by_url(url, suffix=".pdf"):

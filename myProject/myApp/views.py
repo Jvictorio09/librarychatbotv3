@@ -37,7 +37,7 @@ def chat_api(request):
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from myApp.models import Thesis
-from myApp.scripts.embed_and_store import process_thesis_locally
+from myApp.tasks import process_thesis_task
 
 @csrf_exempt
 def upload_thesis_view(request):
@@ -254,6 +254,11 @@ def librarian_home(request):
     programs = Program.objects.all()
     return render(request, 'librarian/landing.html', {'programs': programs})
 
+from django.shortcuts import render, redirect
+from django.http import HttpResponse
+from django.contrib.auth.decorators import login_required
+from myApp.models import Program, Thesis
+from myApp.tasks import process_thesis_task  # ✅ Celery task for async processing
 
 @login_required
 def upload_thesis_view(request):
@@ -264,8 +269,12 @@ def upload_thesis_view(request):
         program_id = request.POST.get("program")
         document = request.FILES.get("document")
 
+        if not document:
+            return HttpResponse("❌ No file uploaded.", status=400)
+
         try:
             program = Program.objects.get(id=program_id)
+
             thesis = Thesis.objects.create(
                 title=title,
                 authors=authors,
@@ -273,12 +282,19 @@ def upload_thesis_view(request):
                 program=program,
                 document=document
             )
-            process_thesis_cloud(thesis, version="v1")
-            return redirect('librarian_home')
+
+            # 🔁 Offload background processing
+            process_thesis_task.delay(thesis.id, version="v1")
+
+            return redirect("librarian_home")
+
+        except Program.DoesNotExist:
+            return HttpResponse("❌ Selected program does not exist.", status=404)
         except Exception as e:
             return HttpResponse(f"❌ Upload failed: {e}", status=500)
 
-    return redirect('librarian_home')
+    return redirect("librarian_home")
+
 
 
 @login_required
@@ -298,12 +314,64 @@ def create_librarian_view(request):
     return redirect('librarian_home')
 
 from django.shortcuts import redirect
-from .models import Thesis
+from django.contrib import messages
+from myApp.models import Thesis
+from myApp.scripts.vector_cache import (
+    load_drive_service,
+    get_latest_file_by_prefix,
+    download_drive_file,
+    upload_to_gdrive_folder,
+    delete_drive_file_by_name
+)
+import json, faiss
+from pathlib import Path
+import tempfile
 
 def delete_theses(request):
     if request.method == 'POST':
-        ids = request.POST.getlist('thesis_ids')
-        Thesis.objects.filter(id__in=ids).delete()
+        try:
+            ids = request.POST.getlist('thesis_ids')
+            theses = Thesis.objects.filter(id__in=ids)
+            TMP_DIR = Path(tempfile.gettempdir())
+
+            service = load_drive_service()
+
+            # Load vector store from Drive
+            faiss_id, _ = get_latest_file_by_prefix(service, "ja_vector_store", "thesis_index")
+            json_id, _ = get_latest_file_by_prefix(service, "ja_vector_store", "metadata")
+
+            faiss_path = download_drive_file(service, faiss_id, ".faiss")
+            meta_path = download_drive_file(service, json_id, ".json")
+
+            index = faiss.read_index(faiss_path)
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+
+            # Rebuild metadata only
+            new_metadata = [meta for meta in metadata if not any(str(thesis.id) in meta["id"] for thesis in theses)]
+
+            # Save new metadata
+            new_meta_path = TMP_DIR / "metadata.json"
+            with open(new_meta_path, "w") as f:
+                json.dump(new_metadata, f, indent=2)
+
+            upload_to_gdrive_folder(new_meta_path.read_bytes(), "metadata.json", "ja_vector_store")
+
+            # Delete PDF files from Drive
+            for thesis in theses:
+                try:
+                    if thesis.title:
+                        delete_drive_file_by_name(service, f"{thesis.title}.pdf", thesis.program.name)
+                except Exception as e:
+                    print(f"⚠️ Could not delete Drive file for {thesis.title}: {e}")
+
+            # Delete from DB
+            theses.delete()
+            messages.success(request, "✅ Selected theses and files were deleted successfully.")
+        except Exception as e:
+            print(f"❌ Deletion error: {e}")
+            messages.error(request, f"Something went wrong: {e}")
+
         return redirect(request.META.get('HTTP_REFERER', 'thesis_library'))
 
 from django.shortcuts import redirect, get_object_or_404
@@ -400,3 +468,78 @@ def ajax_change_password(request):
             errors = form.errors.as_json()
             return JsonResponse({"success": False, "errors": errors}, status=400)
     return JsonResponse({"error": "Invalid request"}, status=400)
+
+import re
+from django.shortcuts import render
+from django.http import JsonResponse
+from .models import Thesis, Program
+from .scripts.extract_text import extract_text_from_pdf
+from django.core.files.base import ContentFile
+from .tasks import process_thesis_task
+
+def bulk_upload_page(request):
+    programs = Program.objects.all()
+    return render(request, "librarian/bulk_upload.html", {"programs": programs})
+
+def extract_metadata_from_text(text):
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    title, authors, abstract = "", "", ""
+
+    for i, line in enumerate(lines):
+        if not title and len(line.split()) > 4:
+            title = line
+        if not authors and ("By" in line or "Author" in line):
+            authors = lines[i + 1] if i + 1 < len(lines) else line
+        if "ABSTRACT" in line.upper():
+            abstract = "\n".join(lines[i + 1:i + 5])
+            break
+
+    return title[:255], authors[:255], abstract
+
+def bulk_upload_single(request):
+    if request.method == 'POST' and request.FILES.get("documents"):
+        uploaded_file = request.FILES["documents"]
+        file_data = uploaded_file.read()
+
+        try:
+            program_id = request.POST.get("program_id")
+            if not program_id:
+                return JsonResponse({"status": "❌ Error: Missing program ID", "success": False}, status=400)
+
+            program = Program.objects.get(id=program_id)
+
+            # Save temporarily for extraction
+            temp_path = f"/tmp/{uploaded_file.name}"
+            with open(temp_path, "wb") as f:
+                f.write(file_data)
+
+            # Extract and parse metadata
+            text = extract_text_from_pdf(temp_path)
+            title, authors, abstract = extract_metadata_from_text(text)
+
+            # Extract year from filename
+            year_match = re.search(r"(19|20)\d{2}", uploaded_file.name)
+            year = int(year_match.group()) if year_match else 0
+
+            # Save to DB
+            thesis = Thesis.objects.create(
+                title=title or uploaded_file.name,
+                authors=authors or "Unknown",
+                abstract=abstract or "",
+                year=year,
+                program=program,
+                document=ContentFile(file_data, name=uploaded_file.name)
+            )
+
+            # Queue for async processing
+            process_thesis_task.delay(thesis.id)
+
+            return JsonResponse({"status": "✅ Queued for processing", "success": True})
+
+        except Program.DoesNotExist:
+            return JsonResponse({"status": "❌ Error: Invalid program ID", "success": False}, status=400)
+
+        except Exception as e:
+            return JsonResponse({"status": f"❌ Error: {str(e)}", "success": False}, status=500)
+
+    return JsonResponse({"status": "❌ Error: Invalid request", "success": False}, status=400)

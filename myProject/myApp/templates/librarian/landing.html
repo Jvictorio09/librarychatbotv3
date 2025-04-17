@@ -3,6 +3,32 @@
 {% block title %}Library AI Chatbot{% endblock %}
 
 {% block content %}
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+<script>
+const socket = new WebSocket("ws://" + window.location.host + "/ws/librarian/");
+
+socket.onmessage = function(e) {
+    const data = JSON.parse(e.data);
+
+    Swal.fire({
+        title: "🎉 Upload Complete!",
+        text: data.message,  // e.g., "Thesis uploaded & processed: test.pdf"
+        icon: "success",
+        confirmButtonColor: "#025450"
+    });
+};
+
+socket.onopen = function(e) {
+    console.log("📡 WebSocket connected.");
+};
+
+socket.onerror = function(e) {
+    console.error("WebSocket error", e);
+};
+
+</script>
+
 <style>
         .dropdown {
       position: relative;

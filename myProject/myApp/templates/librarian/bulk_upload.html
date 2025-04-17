@@ -1,0 +1,180 @@
+
+{% extends "partials/base.html" %}
+{% load static %}
+{% block title %}Bulk Upload Theses{% endblock %}
+
+{% block content %}
+<style>
+  .upload-container {
+    max-width: 700px;
+    margin: 60px auto;
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 40px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+  }
+
+  .upload-title {
+    text-align: center;
+    font-size: 2rem;
+    font-weight: 600;
+    color: #025450;
+    margin-bottom: 30px;
+  }
+
+  #documents {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    padding: 16px;
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    background: #f9f9f9;
+    color: #555;
+    font-size: 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.3s ease, background 0.3s ease;
+  }
+
+  #documents:hover {
+    border-color: #025450;
+    background-color: #f0fefc;
+  }
+
+  .upload-btn {
+    margin-top: 20px;
+    background-color: #025450;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+
+  .upload-btn:hover {
+    background-color: #027f7a;
+  }
+
+  .status-container {
+    max-width: 700px;
+    margin: 40px auto;
+  }
+
+  #progress-summary {
+    text-align: center;
+    font-weight: 500;
+    margin-bottom: 20px;
+    color: #333;
+  }
+
+  #status-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  #status-list li {
+    background: #f9f9f9;
+    margin-bottom: 10px;
+    padding: 14px 20px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+
+  #status-list li::before {
+    content: "📄";
+  }
+
+  #status-list li.success::before {
+    content: "✅";
+    color: green;
+  }
+
+  #status-list li.error::before {
+    content: "❌";
+    color: red;
+  }
+</style>
+
+<div class="upload-container">
+  <h1 class="upload-title">📤 Smart Bulk Upload</h1>
+  <form id="upload-form" method="POST" enctype="multipart/form-data" action="{% url 'bulk_upload' %}">
+    {% csrf_token %}
+    <label for="program_id" style="font-weight: 500;">Select Program:</label>
+    <select id="program_id" name="program_id" required style="display:block; width: 100%; padding: 10px; margin-bottom: 20px;">
+      <option value="">-- Select Program --</option>
+      {% for program in programs %}
+        <option value="{{ program.id }}">{{ program.name }}</option>
+      {% endfor %}
+    </select>
+    <input type="file" name="documents" id="documents" multiple accept="application/pdf">
+    <button type="submit" class="upload-btn">Upload Files</button>
+  </form>
+</div>
+
+<div class="status-container">
+  <div id="progress-summary"></div>
+  <ul id="status-list"></ul>
+</div>
+
+<script>
+    document.getElementById('upload-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+  
+      const files = document.getElementById('documents').files;
+      const programId = document.getElementById('program_id').value;
+      if (!files.length || !programId) return alert("Please select a program and at least one PDF file.");
+  
+      const statusList = document.getElementById('status-list');
+      const summary = document.getElementById('progress-summary');
+      statusList.innerHTML = '';
+      summary.textContent = `Uploading 0 of ${files.length}...`;
+  
+      let uploadedCount = 0;
+  
+      Array.from(files).forEach((file, index) => {
+        const listItem = document.createElement('li');
+        listItem.textContent = `${file.name} — Uploading...`;
+        statusList.appendChild(listItem);
+  
+        const singleFile = new FormData();
+        singleFile.append("documents", file);
+        singleFile.append("program_id", programId);
+  
+        fetch("{% url 'bulk_upload_single' %}", {
+          method: "POST",
+          body: singleFile,
+          headers: {
+            "X-CSRFToken": "{{ csrf_token }}"
+          }
+        })
+        .then(res => res.json())
+        .then(data => {
+          uploadedCount++;
+          if (data.success) {
+            listItem.classList.add('success');
+          } else {
+            listItem.classList.add('error');
+          }
+          listItem.textContent = `${file.name} — ${data.status || 'Done'}`;
+          summary.textContent = `Uploaded ${uploadedCount} of ${files.length}`;
+        })
+        .catch(err => {
+          uploadedCount++;
+          listItem.classList.add('error');
+          listItem.textContent = `${file.name} — Failed to upload`;
+          summary.textContent = `Uploaded ${uploadedCount} of ${files.length}`;
+        });
+      });
+    });
+  </script>
+  
+{% endblock %}

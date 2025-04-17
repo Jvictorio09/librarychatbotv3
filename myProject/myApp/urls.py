@@ -34,4 +34,7 @@ urlpatterns = [
     path('librarian/revoke/<int:user_id>/', views.revoke_user, name='revoke_user'),
 
     path("ajax/change-password/", views.ajax_change_password, name="ajax_change_password"),
+
+    path("bulk-upload/", views.bulk_upload_page, name="bulk_upload"),
+    path("bulk-upload/single/", views.bulk_upload_single, name="bulk_upload_single"),
 ]

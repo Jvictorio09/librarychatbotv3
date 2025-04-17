@@ -3,194 +3,180 @@
 {% block title %}Library AI Chatbot{% endblock %}
 
 {% block content %}
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+<script>
+const socket = new WebSocket("ws://" + window.location.host + "/ws/librarian/");
+
+socket.onmessage = function(e) {
+  const data = JSON.parse(e.data);
+
+  Swal.fire({
+    title: "✅ Upload Complete!",
+    text: data.message,
+    icon: "success",
+    confirmButtonColor: "#025450",
+  }).then(() => {
+    location.reload();  // 🔄 Reloads the page to show new thesis
+  });
+};
+
+socket.onopen = () => console.log("📡 Connected to WebSocket");
+socket.onerror = (e) => console.error("❌ WebSocket Error:", e);
+</script>
+
 <style>
-    h1 {
-      text-align: center;
-      color: #025450;
-      margin-bottom: 30px;
-    }
-    .table-container {
-      background: white;
-      padding: 20px;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      max-width: 1200px;
-      margin: 0 auto;
-      overflow-x: auto;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 800px;
-    }
-    th, td {
-      padding: 14px 16px;
-      text-align: left;
-      border-bottom: 1px solid #eaeaea;
-    }
-    th {
-      background-color: #025450;
-      color: white;
-      text-transform: uppercase;
-      font-size: 0.9rem;
-      letter-spacing: 0.5px;
-    }
-    tr:hover { background-color: #f7fafd; }
-    a { color: #007bff; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .no-file { color: #cc0000; }
+  h1 {
+    text-align: center;
+    color: #025450;
+    margin-bottom: 30px;
+  }
+  .table-container {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    max-width: 1200px;
+    margin: 0 auto;
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 800px;
+  }
+  th, td {
+    padding: 14px 16px;
+    text-align: left;
+    border-bottom: 1px solid #eaeaea;
+  }
+  th {
+    background-color: #025450;
+    color: white;
+    text-transform: uppercase;
+    font-size: 0.9rem;
+    letter-spacing: 0.5px;
+  }
+  tr:hover { background-color: #f7fafd; }
+  a { color: #007bff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .no-file { color: #cc0000; }
 
-    .actions {
-      margin: 20px auto;
-      text-align: center;
-    }
-    .actions button {
-      background: #cc0000;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      margin: 0 5px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-    .actions button:hover { background-color: #990000; }
+  .actions {
+    margin: 20px auto;
+    text-align: center;
+  }
+  .actions button {
+    background: #cc0000;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    margin: 0 5px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .actions button:hover { background-color: #990000; }
 
-    .search-bar {
-      text-align: center;
-      margin-bottom: 20px;
-      position: relative;
-    }
-    .search-bar input {
-      padding: 10px;
-      width: 300px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-    }
+  .search-bar {
+    text-align: center;
+    margin-bottom: 20px;
+    position: relative;
+  }
+  .search-bar input {
+    padding: 10px;
+    width: 300px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+  }
 
-    #search-results {
-      position: absolute;
-      width: 300px;
-      background: #fff;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      z-index: 999;
-      margin-top: 5px;
-      left: 50%;
-      transform: translateX(-50%);
-      text-align: left;
-      max-height: 200px;
-      overflow-y: auto;
-    }
+  #search-results {
+    position: absolute;
+    width: 300px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    z-index: 999;
+    margin-top: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: left;
+    max-height: 200px;
+    overflow-y: auto;
+  }
 
-    #search-results li {
-      padding: 10px;
-      border-bottom: 1px solid #eee;
-    }
+  #search-results li {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+  }
 
-    #search-results li:hover {
-      background-color: #f0f0f0;
-    }
+  #search-results li:hover {
+    background-color: #f0f0f0;
+  }
 
-    .edit-button {
-      background: #025450;
-      color: white;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .edit-button:hover {
-      background: #027f7a;
-    }
+  .edit-button {
+    background: #025450;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .edit-button:hover {
+    background: #027f7a;
+  }
 
-    .modal-content {
-      background-color: #fff;
-      margin: 10% auto;
-      padding: 25px 30px;
-      border-radius: 10px;
-      width: 90%;
-      max-width: 500px;
-      box-shadow: 0 0 15px rgba(0,0,0,0.2);
-    }
-    .modal-content input, .modal-content select {
-      width: 100%;
-      padding: 10px;
-      margin-top: 6px;
-      margin-bottom: 16px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      box-sizing: border-box;
-    }
-    .modal-content button[type="submit"] {
-      background-color: #025450;
-      color: white;
-      padding: 12px 20px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-    .modal-content button[type="submit"]:hover {
-      background-color: #027f7a;
-    }
+  .modal-content {
+    background-color: #fff;
+    margin: 10% auto;
+    padding: 25px 30px;
+    border-radius: 10px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 0 15px rgba(0,0,0,0.2);
+  }
 
-    .header {
-      position: absolute;
-      top: 20px;
-      right: 30px;
-    }
+  .modal-content input, .modal-content select {
+    width: 100%;
+    padding: 10px;
+    margin-top: 6px;
+    margin-bottom: 16px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    box-sizing: border-box;
+  }
 
-    .dropdown {
-      position: relative;
-      display: inline-block;
-    }
+  .modal-content button[type="submit"] {
+    background-color: #025450;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+  }
 
-    .dropbtn {
-      background-color: #007bff;
-      color: white;
-      padding: 10px 20px;
-      font-size: 14px;
-      border: none;
-      cursor: pointer;
-      border-radius: 6px;
-    }
-
-    .dropdown-content {
-      display: none;
-      position: absolute;
-      right: 0;
-      background-color: white;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-      min-width: 160px;
-      z-index: 1;
-      border-radius: 6px;
-    }
-
-    .dropdown-content a,
-    .dropdown-content button {
-      color: black;
-      padding: 12px 16px;
-      text-decoration: none;
-      display: block;
-      background: none;
-      border: none;
-      width: 100%;
-      text-align: left;
-      cursor: pointer;
-    }
-
-    .dropdown-content a:hover,
-    .dropdown-content button:hover {
-      background-color: #f1f1f1;
-    }
-
-    .dropdown:hover .dropdown-content {
-      display: block;
-    }
+  .modal-content button[type="submit"]:hover {
+    background-color: #027f7a;
+  }
 </style>
+
+
+
 {% include "partials/logged_in_header.html" %}
+
+{% if messages %}
+<script>
+  {% for message in messages %}
+    Swal.fire({
+      title: "{{ message.tags|title }}",
+      text: "{{ message }}",
+      icon: "{{ message.tags }}"
+    });
+  {% endfor %}
+</script>
+{% endif %}
 
 <h1>📚 Thesis Library {% if selected_program %}- {{ selected_program.name }} {% endif %}</h1>
 
@@ -199,7 +185,8 @@
   <ul id="search-results" style="list-style: none; padding: 0;"></ul>
 </div>
 
-<form method="POST" action="/delete-theses/">
+<!-- ✅ Add ID for JavaScript to hook into -->
+<form id="deleteForm" method="POST" action="/delete-theses/">
   {% csrf_token %}
   <div class="table-container">
     <table>
@@ -276,6 +263,8 @@
   </div>
 </div>
 
+<!-- ✅ SweetAlert2 + Delete Logic -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
   document.getElementById('checkAll').addEventListener('change', function () {
     document.querySelectorAll('input[name="thesis_ids"]').forEach(cb => cb.checked = this.checked);
@@ -294,7 +283,7 @@
     document.getElementById('editModal').style.display = 'none';
   }
 
-  // 🔍 AJAX Live Search with Debounce
+  // 🧠 AJAX Live Search with Debounce
   let debounceTimeout;
   const searchInput = document.getElementById("live-search");
   const resultsList = document.getElementById("search-results");
@@ -325,11 +314,52 @@
     }, 300);
   });
 
-  // Hide results on outside click
   document.addEventListener("click", function (e) {
     if (!e.target.closest(".search-bar")) {
       resultsList.innerHTML = "";
     }
+  });
+
+  // 🔥 SweetAlert2 Delete Confirmation
+  document.addEventListener("DOMContentLoaded", function () {
+    const form = document.getElementById("deleteForm");
+    const deleteBtn = form.querySelector('button[type="submit"]');
+
+    deleteBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+
+      const selected = document.querySelectorAll('input[name="thesis_ids"]:checked');
+      if (!selected.length) {
+        Swal.fire({
+          icon: "info",
+          title: "No selection",
+          text: "Please select at least one thesis to delete."
+        });
+        return;
+      }
+
+      Swal.fire({
+        title: "Are you sure?",
+        text: "This will delete the selected thesis files and records.",
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonColor: "#cc0000",
+        cancelButtonColor: "#3085d6",
+        confirmButtonText: "Yes, delete them!"
+      }).then((result) => {
+        if (result.isConfirmed) {
+          Swal.fire({
+            title: "Deleting...",
+            text: "Please wait while we delete your files.",
+            allowOutsideClick: false,
+            didOpen: () => {
+              Swal.showLoading();
+              form.submit();
+            }
+          });
+        }
+      });
+    });
   });
 </script>
 {% endblock %}

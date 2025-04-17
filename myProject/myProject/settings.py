@@ -5,7 +5,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env(DEBUG=(bool, False))
-env_file = "/Users/ADMIN/Downloads/LibraryChatBot/myProject/.env"
+env_file = "/Users/Julia/Downloads/librarychatbotv3/myProject/.env"
 
 
 if os.path.exists(env_file):
@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'cloudinary',
     'cloudinary_storage',
     'myApp.apps.MyAppConfig',
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -142,9 +143,6 @@ DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
 
 OPENAI_API_KEY = env('OPENAI_API_KEY')
 
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
 
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -154,3 +152,24 @@ EMAIL_USE_TLS = env('EMAIL_USE_TLS', default=True) in [True, 'True', 'true', 1, 
 EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')  # App password
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER)
+
+ASGI_APPLICATION = "myProject.asgi.application"
+
+from urllib.parse import urlparse
+
+redis_url = env('REDIS_URL')
+parsed_redis = urlparse(redis_url)
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [(parsed_redis.hostname, parsed_redis.port)],
+        },
+    },
+}
+
+CELERY_BROKER_URL = env('REDIS_URL')
+CELERY_RESULT_BACKEND = env('REDIS_URL')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'

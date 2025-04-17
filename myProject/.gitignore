@@ -1,2 +1,13 @@
 .env
 credentials/"myProject/Miniconda3-latest-Linux-x86_64.sh" 
+# Avoid committing temp/cache folders
+*.faiss
+*.json
+*.pdf
+*.pkl
+/tmp/
+vector_store/
+__pycache__/
+
+# Ignore credentials directory
+myProject/credentials/

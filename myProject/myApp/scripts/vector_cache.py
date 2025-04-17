@@ -73,34 +73,40 @@ def upload_to_gdrive_folder(file_data, filename, folder_name, root_folder="thesi
     print(f"✅ Uploaded: {filename} → {file_link}")
     return file_link
 
-# ⬇️ Download file by name (from a folder)
-def download_drive_file(service, filename, suffix=".pdf", folder="thesis_uploads"):
-    print(f"🔍 Searching for: {filename} in Drive folder: {folder}")
-    
-    folder_id = find_or_create_folder(service, folder)
-    query = f"name='{filename}' and '{folder_id}' in parents"
-    
-    response = service.files().list(q=query, spaces="drive", fields="files(id, name)").execute()
-    files = response.get("files", [])
-    if not files:
-        raise Exception(f"❌ File '{filename}' not found in Google Drive folder '{folder}'")
+import requests
 
-    file_id = files[0]['id']
-    request = service.files().get_media(fileId=file_id)
+def download_drive_file_by_url(url, suffix=".pdf"):
+    try:
+        file_id = None
 
-    file_stream = io.BytesIO()
-    downloader = MediaIoBaseDownload(file_stream, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
+        # 🕵️ Extract file ID from shared GDrive URL
+        if "drive.google.com" in url:
+            if "id=" in url:
+                file_id = url.split("id=")[-1].split("&")[0]
+            elif "/d/" in url:
+                file_id = url.split("/d/")[-1].split("/")[0]
 
-    file_stream.seek(0)
-    temp_path = os.path.join(tempfile.gettempdir(), f"{filename}")
-    with open(temp_path, "wb") as f:
-        f.write(file_stream.read())
+        if not file_id:
+            raise Exception("❌ Invalid Google Drive URL.")
 
-    print(f"✅ Downloaded file to temp: {temp_path}")
-    return temp_path
+        download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+
+        # 📥 Fetch the file
+        response = requests.get(download_url)
+        response.raise_for_status()
+
+        # 💾 Save to /tmp/
+        temp_path = os.path.join(tempfile.gettempdir(), f"downloaded_{file_id}{suffix}")
+        with open(temp_path, "wb") as f:
+            f.write(response.content)
+
+        print(f"✅ Downloaded file to: {temp_path}")
+        return temp_path
+
+    except Exception as e:
+        print(f"❌ Failed to download from Drive URL: {e}")
+        return ""
+
 
 # 🔍 Find latest file by prefix (Drive vector logic)
 def get_latest_file_by_prefix(service, folder_name, prefix):

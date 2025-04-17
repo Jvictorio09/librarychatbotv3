@@ -1,98 +1,124 @@
-import os, json, tempfile, numpy as np, faiss
+import os
+import json
+import tempfile
+import numpy as np
+import faiss
 from pathlib import Path
 from celery import shared_task
 from openai import OpenAI
 from dotenv import load_dotenv
+
+from django.core.files.storage import default_storage
 from myApp.models import Thesis
 from myApp.scripts.extract_text import extract_text_from_pdf
 from myApp.scripts.vector_cache import (
-    load_drive_service, upload_to_gdrive_folder,
-    download_drive_file, get_latest_file_by_prefix
+    load_drive_service,
+    upload_to_gdrive_folder,
+    get_latest_file_by_prefix,
+    download_drive_file_by_url,  # ✅ NEW FUNCTION
 )
 from myApp.scripts.embedding_utils import embed_text, chunk_text
+
+# 🔄 Channels
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
+# 🔐 Env + Client
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 TMP_DIR = Path(tempfile.gettempdir())
 
 def notify_librarians(message):
-    async_to_sync(get_channel_layer().group_send)(
-        "librarian_notify", {"type": "notify_upload_complete", "message": message}
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        "librarian_notify",
+        {"type": "notify_upload_complete", "message": message}
     )
 
 @shared_task
 def process_thesis_task(thesis_id, version="v2"):
     try:
-        thesis = Thesis.objects.get(pk=thesis_id)
+        thesis = Thesis.objects.get(id=thesis_id)
         print(f"📘 [v{version}] Processing: {thesis.title}")
 
-        # 📥 Download from Drive
-        service = load_drive_service()
-        pdf_path = download_drive_file(service, thesis.document, suffix=".pdf")
+        if not thesis.gdrive_url:
+            print(f"❌ No gdrive_url found for thesis {thesis.title}")
+            return
 
-        # 🧠 Extract → Chunk → Embed
+        # ✅ Download PDF using public Google Drive URL
+        pdf_path = download_drive_file_by_url(thesis.gdrive_url)
+        if not os.path.exists(pdf_path):
+            print(f"❌ Failed to download PDF from gdrive_url")
+            return
+
+        # 📄 Extract & embed
         text = extract_text_from_pdf(pdf_path)
         chunks = chunk_text(text)
 
         vectors, metadata = [], []
         for i, chunk in enumerate(chunks):
-            emb = embed_text(chunk)
-            vectors.append(np.array(emb, dtype=np.float32))
-            metadata.append({
-                "id": f"{thesis.id}_{i}",
-                "title": thesis.title,
-                "program": thesis.program.name,
-                "year": thesis.year,
-                "chunk": chunk
-            })
+            try:
+                emb = embed_text(chunk)
+                vectors.append(np.array(emb, dtype=np.float32))
+                metadata.append({
+                    "id": f"{thesis.id}_{i}",
+                    "title": thesis.title,
+                    "program": thesis.program.name,
+                    "year": thesis.year,
+                    "chunk": chunk
+                })
+            except Exception as e:
+                print(f"❌ Embedding failed on chunk {i}: {e}")
 
-        # 🧠 Index & Meta
+        if not vectors:
+            print("⚠️ No embeddings created.")
+            return
+
+        # 🧠 Save FAISS index and metadata locally
         index_path = TMP_DIR / "thesis_index.faiss"
-        meta_path = TMP_DIR / "metadata.json"
+        metadata_path = TMP_DIR / "metadata.json"
         dim = len(vectors[0])
 
         try:
-            if not index_path.exists() or not meta_path.exists():
+            if not index_path.exists() or not metadata_path.exists():
+                print("🔄 Pulling from Drive...")
+                service = load_drive_service()
                 faiss_id, _ = get_latest_file_by_prefix(service, "ja_vector_store", "thesis_index")
                 meta_id, _ = get_latest_file_by_prefix(service, "ja_vector_store", "metadata")
 
                 if faiss_id and meta_id:
-                    index = faiss.read_index(download_drive_file(service, faiss_id, ".faiss"))
-                    with open(download_drive_file(service, meta_id, ".json")) as f:
-                        existing_meta = json.load(f)
+                    faiss_path = download_drive_file_by_url(f"https://drive.google.com/uc?id={faiss_id}")
+                    meta_path = download_drive_file_by_url(f"https://drive.google.com/uc?id={meta_id}")
+                    index = faiss.read_index(faiss_path)
+                    with open(meta_path, "r") as f:
+                        existing_metadata = json.load(f)
                 else:
                     index = faiss.IndexFlatL2(dim)
-                    existing_meta = []
+                    existing_metadata = []
             else:
                 index = faiss.read_index(str(index_path))
-                with open(meta_path, "r") as f:
-                    existing_meta = json.load(f)
-
+                with open(metadata_path, "r") as f:
+                    existing_metadata = json.load(f)
         except Exception as e:
-            print(f"⚠️ Fresh index: {e}")
+            print(f"⚠️ Couldn't load existing FAISS index: {e}")
             index = faiss.IndexFlatL2(dim)
-            existing_meta = []
+            existing_metadata = []
 
-        # ➕ Add vectors
         index.add(np.array(vectors))
         faiss.write_index(index, str(index_path))
 
-        all_meta = existing_meta + [m for m in metadata if m["id"] not in {x["id"] for x in existing_meta}]
-        with open(meta_path, "w") as f:
-            json.dump(all_meta, f, indent=2)
+        new_metadata = [m for m in metadata if m["id"] not in {x["id"] for x in existing_metadata}]
+        with open(metadata_path, "w") as f:
+            json.dump(existing_metadata + new_metadata, f, indent=2)
 
-        # ☁️ Upload vectors to Drive
+        # ☁ Upload FAISS + Metadata
         upload_to_gdrive_folder(index_path.read_bytes(), "thesis_index.faiss", "ja_vector_store")
-        upload_to_gdrive_folder(meta_path.read_bytes(), "metadata.json", "ja_vector_store")
+        upload_to_gdrive_folder(metadata_path.read_bytes(), "metadata.json", "ja_vector_store")
 
-        # ✅ Notify
-        notify_librarians(f"📘 Thesis processed: {thesis.title}")
+        notify_librarians(f"📘 Thesis uploaded & processed: {thesis.title}")
+        print(f"✅ {thesis.title} processed & stored.")
 
-        # 🧹 Cleanup
-        os.remove(pdf_path)
-        print(f"✅ Done for: {thesis.title}")
-
+    except Thesis.DoesNotExist:
+        print(f"❌ Thesis with ID {thesis_id} not found.")
     except Exception as e:
-        print(f"❌ Error processing thesis {thesis_id}: {e}")
+        print(f"❌ Unexpected error: {e}")

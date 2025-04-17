@@ -30,6 +30,10 @@ ALLOWED_HOSTS = [
     '0.0.0.0',
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    'https://library-chatbot-production.up.railway.app',
+]
+
 
 
 # Application definition

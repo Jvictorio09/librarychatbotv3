@@ -4,17 +4,19 @@ import environ
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-env = environ.Env(DEBUG=(bool, False))
-env_file = "/Users/Julia/Downloads/librarychatbotv3/myProject/.env"
 
+# Initialize environment
+env = environ.Env(
+    DEBUG=(bool, False)
+)
 
+# Try loading from a .env file — fallback to system vars silently
+env_file = os.path.join(BASE_DIR, '.env')
 if os.path.exists(env_file):
     env.read_env(env_file)
+    print("✅ Loaded environment from .env")
 else:
-    if not os.environ.get("DATABASE_URL"):
-        raise Exception("⚠️ DATABASE_URL is not set in the environment!")
-    else:
-        print("No .env file found. Using system environment variables.")
+    print("📦 No .env file found — falling back to system environment variables.")
 
 
 # SECURITY WARNING: keep the secret key used in production secret!
@@ -131,10 +133,6 @@ import os
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# Ensure these are added
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
-]
 
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
@@ -183,3 +181,5 @@ CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+

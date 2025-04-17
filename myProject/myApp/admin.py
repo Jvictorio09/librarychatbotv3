@@ -3,7 +3,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from .models import Program, Thesis
-from myApp.tasks import process_thesis_async
+
 from myApp.scripts.vector_cache import upload_to_gdrive_folder
 
 

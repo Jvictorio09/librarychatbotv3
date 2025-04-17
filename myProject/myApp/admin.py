@@ -1,11 +1,9 @@
-# myApp/admin.py
-
 from django.contrib import admin
 from django.utils.html import format_html
+from django.core.files.storage import default_storage
 from .models import Program, Thesis
-
 from myApp.scripts.vector_cache import upload_to_gdrive_folder
-
+from myApp.tasks import process_thesis_task  # ✅ use the correct Celery task
 
 @admin.register(Program)
 class ProgramAdmin(admin.ModelAdmin):
@@ -28,33 +26,33 @@ class ThesisAdmin(admin.ModelAdmin):
     view_file.short_description = "Thesis File"
 
     def save_model(self, request, obj, form, change):
-        # Save to DB first so we can access the file
         super().save_model(request, obj, form, change)
 
         try:
-            if obj.document:
-                # Read the file and upload it to Google Drive
-                file_data = obj.document.read()
+            if obj.document and obj.document.name:
+                # 🔄 Load file from storage (e.g. S3, local, etc.)
+                with default_storage.open(obj.document.name, 'rb') as doc_file:
+                    file_data = doc_file.read()
+
                 filename = f"{obj.title}.pdf"
                 drive_url = upload_to_gdrive_folder(file_data, filename, obj.program.name)
 
-                # Save the generated Drive link
                 obj.gdrive_url = drive_url
                 obj.save(update_fields=["gdrive_url"])
 
-                # Trigger background embedding
-                process_thesis_async.delay(obj.id)
+                # ✅ Queue for async embedding
+                process_thesis_task.delay(obj.id)
 
                 self.message_user(
                     request,
-                    "✅ Upload saved and sent to Google Drive. Background embedding is processing."
+                    "✅ Uploaded to Google Drive and queued for embedding."
                 )
             else:
-                self.message_user(request, "⚠️ No file uploaded with this record.", level='warning')
+                self.message_user(request, "⚠️ No document attached.", level='warning')
 
         except Exception as e:
             print(f"❌ Admin Upload Error: {e}")
-            self.message_user(request, f"❌ Error during upload or processing: {e}", level='error')
+            self.message_user(request, f"❌ Error uploading to Drive or processing: {e}", level='error')
 
     def has_add_permission(self, request):
-        return True  # Toggle this if you want to restrict uploads via the admin
+        return True

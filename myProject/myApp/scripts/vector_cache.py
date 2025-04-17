@@ -76,7 +76,7 @@ def upload_to_gdrive_folder(file_data, filename, folder_name, root_folder="thesi
 # ⬇️ Download file by name (from a folder)
 import requests
 
-def download_drive_file_by_url(url, suffix=".pdf"):
+def download_drive_file(url, suffix=".pdf"):
     try:
         file_id = None
 

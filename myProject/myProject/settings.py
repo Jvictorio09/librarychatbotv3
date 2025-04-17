@@ -24,7 +24,7 @@ SECRET_KEY = 'django-insecure-8wlibv%%hz+roc0izv)cj)7b%*u0+0wiv_bl+boe@k5y9hkmrr
 DEBUG = True
 
 ALLOWED_HOSTS = [
-    'librarychatbot-production.up.railway.app',
+    'library-chatbot-production.up.railway.app',
     'localhost',
     '127.0.0.1',
     '0.0.0.0',

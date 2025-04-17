@@ -299,38 +299,59 @@ from myApp.scripts.vector_cache import (
 import json, faiss
 from pathlib import Path
 import tempfile
+from django.contrib import messages
+from django.shortcuts import redirect
+from pathlib import Path
+import tempfile, json, faiss
+
+from myApp.models import Thesis
+from myApp.scripts.vector_cache import (
+    load_drive_service,
+    get_latest_file_by_prefix,
+    download_drive_file,
+    upload_to_gdrive_folder,
+    delete_drive_file_by_name
+)
 
 def delete_theses(request):
     if request.method == 'POST':
-        try:
-            ids = request.POST.getlist('thesis_ids')
-            theses = Thesis.objects.filter(id__in=ids)
-            TMP_DIR = Path(tempfile.gettempdir())
+        ids = request.POST.getlist('thesis_ids')
+        theses = Thesis.objects.filter(id__in=ids)
+        TMP_DIR = Path(tempfile.gettempdir())
 
+        try:
             service = load_drive_service()
 
-            # Load vector store from Drive
-            faiss_id, _ = get_latest_file_by_prefix(service, "ja_vector_store", "thesis_index")
-            json_id, _ = get_latest_file_by_prefix(service, "ja_vector_store", "metadata")
+            # 🔍 Try loading existing vector index and metadata
+            try:
+                faiss_id, _ = get_latest_file_by_prefix(service, "ja_vector_store", "thesis_index")
+                json_id, _ = get_latest_file_by_prefix(service, "ja_vector_store", "metadata")
 
-            faiss_path = download_drive_file(service, faiss_id, ".faiss")
-            meta_path = download_drive_file(service, json_id, ".json")
+                if faiss_id and json_id:
+                    faiss_path = download_drive_file(service, faiss_id, ".faiss")
+                    meta_path = download_drive_file(service, json_id, ".json")
 
-            index = faiss.read_index(faiss_path)
-            with open(meta_path, "r") as f:
-                metadata = json.load(f)
+                    index = faiss.read_index(faiss_path)
+                    with open(meta_path, "r") as f:
+                        metadata = json.load(f)
 
-            # Rebuild metadata only
-            new_metadata = [meta for meta in metadata if not any(str(thesis.id) in meta["id"] for thesis in theses)]
+                    # 🧠 Rebuild metadata
+                    thesis_ids = {str(thesis.id) for thesis in theses}
+                    new_metadata = [m for m in metadata if not any(tid in m["id"] for tid in thesis_ids)]
 
-            # Save new metadata
-            new_meta_path = TMP_DIR / "metadata.json"
-            with open(new_meta_path, "w") as f:
-                json.dump(new_metadata, f, indent=2)
+                    # 💾 Save & upload updated metadata
+                    new_meta_path = TMP_DIR / "metadata.json"
+                    with open(new_meta_path, "w") as f:
+                        json.dump(new_metadata, f, indent=2)
 
-            upload_to_gdrive_folder(new_meta_path.read_bytes(), "metadata.json", "ja_vector_store")
+                    upload_to_gdrive_folder(new_meta_path.read_bytes(), "metadata.json", "ja_vector_store")
+                else:
+                    print("⚠️ No index or metadata found. Skipping FAISS cleanup.")
 
-            # Delete PDF files from Drive
+            except Exception as e:
+                print(f"⚠️ Failed to update FAISS/metadata: {e}")
+
+            # 🗑 Delete files from Drive (if any)
             for thesis in theses:
                 try:
                     if thesis.title:
@@ -338,12 +359,15 @@ def delete_theses(request):
                 except Exception as e:
                     print(f"⚠️ Could not delete Drive file for {thesis.title}: {e}")
 
-            # Delete from DB
-            theses.delete()
-            messages.success(request, "✅ Selected theses and files were deleted successfully.")
         except Exception as e:
-            print(f"❌ Deletion error: {e}")
-            messages.error(request, f"Something went wrong: {e}")
+            print(f"⚠️ Drive service error: {e}")
+
+        # ✅ Always delete from DB
+        try:
+            deleted_count, _ = theses.delete()
+            messages.success(request, f"✅ Deleted {deleted_count} thesis record(s) successfully.")
+        except Exception as e:
+            messages.error(request, f"❌ Failed to delete thesis from database: {e}")
 
         return redirect(request.META.get('HTTP_REFERER', 'thesis_library'))
 

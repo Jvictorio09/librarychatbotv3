@@ -8,6 +8,7 @@ from celery import shared_task
 from openai import OpenAI
 from dotenv import load_dotenv
 
+from django.core.files.storage import default_storage
 from myApp.models import Thesis
 from myApp.scripts.extract_text import extract_text_from_pdf
 from myApp.scripts.vector_cache import (
@@ -27,7 +28,7 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 TMP_DIR = Path(tempfile.gettempdir())
 
-# 📢 Notification
+# 📢 WebSocket Notifier
 def notify_librarians(message):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
@@ -60,13 +61,16 @@ def process_thesis_async(thesis_id):
             print("❌ No document found.")
             return
 
-        # Save uploaded file to temp
-        file_data = thesis.document.read()
+        # 👇 Safely read the uploaded file from wherever it's stored
+        with default_storage.open(thesis.document.name, 'rb') as doc_file:
+            file_data = doc_file.read()
+
+        # 💾 Save to temporary path
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
             tmp_file.write(file_data)
             tmp_path = tmp_file.name
 
-        # Extract and embed text
+        # 📄 Extract text and chunk it
         text = extract_text_from_pdf(tmp_path)
         chunks = chunk_text(text)
 
@@ -89,12 +93,12 @@ def process_thesis_async(thesis_id):
             print("⚠️ No embeddings created. Stopping.")
             return
 
-        # Prepare paths
+        # 🧠 FAISS and metadata paths
         index_path = TMP_DIR / "thesis_index.faiss"
         metadata_path = TMP_DIR / "metadata.json"
         dim = len(vectors[0])
 
-        # Try to load from Drive if local doesn't exist
+        # 🔄 Load or create index
         try:
             if not index_path.exists() or not metadata_path.exists():
                 print("🔄 Pulling from Drive...")
@@ -120,10 +124,11 @@ def process_thesis_async(thesis_id):
             index = faiss.IndexFlatL2(dim)
             existing_metadata = []
 
-        # Update index and metadata
+        # ➕ Add new vectors
         index.add(np.array(vectors))
         faiss.write_index(index, str(index_path))
 
+        # 📝 Merge metadata safely
         existing_ids = {item["id"] for item in existing_metadata}
         new_metadata = [m for m in metadata if m["id"] not in existing_ids]
         all_metadata = existing_metadata + new_metadata
@@ -131,21 +136,18 @@ def process_thesis_async(thesis_id):
         with open(metadata_path, "w") as f:
             json.dump(all_metadata, f, indent=2)
 
-        # Upload index and metadata
+        # ☁️ Upload vector files to Drive
         upload_to_gdrive_folder(index_path.read_bytes(), "thesis_index.faiss", "ja_vector_store")
         upload_to_gdrive_folder(metadata_path.read_bytes(), "metadata.json", "ja_vector_store")
 
-        # Upload original PDF
+        # ☁️ Upload original PDF
         gdrive_url = upload_to_gdrive_folder(file_data, f"{thesis.title}.pdf", thesis.program.name)
         thesis.gdrive_url = gdrive_url
         thesis.save(update_fields=["gdrive_url"])
 
         print(f"✅ Completed upload and embedding for: {thesis.title}")
-
-        # ✅ Notify librarians
         notify_librarians(f"📘 Thesis uploaded & processed: {thesis.title}")
         print(f"📢 Notifying librarians: {thesis.title}")
-
 
     except Thesis.DoesNotExist:
         print(f"❌ Thesis with ID {thesis_id} does not exist.")

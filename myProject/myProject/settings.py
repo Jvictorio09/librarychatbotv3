@@ -157,7 +157,7 @@ ASGI_APPLICATION = "myProject.asgi.application"
 
 from urllib.parse import urlparse
 
-redis_url = env('REDIS_URL')
+redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 parsed_redis = urlparse(redis_url)
 
 CHANNEL_LAYERS = {
@@ -169,7 +169,8 @@ CHANNEL_LAYERS = {
     },
 }
 
-CELERY_BROKER_URL = env('REDIS_URL')
-CELERY_RESULT_BACKEND = env('REDIS_URL')
+
+CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'

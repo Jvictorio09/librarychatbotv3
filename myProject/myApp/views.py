@@ -33,33 +33,6 @@ def chat_api(request):
         print(f"❌ Chat API Error: {e}")
         return JsonResponse({"reply": "Sorry, something went wrong. Please try again."}, status=500)
 
-# ✅ Keep only this production version of upload_thesis_view
-from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
-from myApp.models import Thesis
-from myApp.tasks import process_thesis_task
-
-@csrf_exempt
-def upload_thesis_view(request):
-    if request.method == 'POST':
-        thesis_id = request.POST.get('thesis_id')
-        if not thesis_id:
-            return JsonResponse({'error': 'No thesis ID provided'})
-
-        try:
-            thesis = Thesis.objects.get(id=thesis_id)
-            process_thesis_locally(thesis)  # ⬅️ Call it directly, no Celery
-            return JsonResponse({
-                'status': 'Success',
-                'message': f'Thesis {thesis_id} processed without Celery'
-            })
-        except Thesis.DoesNotExist:
-            return JsonResponse({'error': 'Thesis not found'})
-        except Exception as e:
-            return JsonResponse({'error': str(e)})
-
-    return JsonResponse({'error': 'Only POST allowed'})
-
 
 from django.contrib.auth.models import User
 from django.contrib.auth import login
@@ -481,6 +454,55 @@ def bulk_upload_page(request):
     programs = Program.objects.all()
     return render(request, "librarian/bulk_upload.html", {"programs": programs})
 
+import re
+from django.shortcuts import render, redirect
+from django.http import HttpResponse, JsonResponse
+from django.core.files.base import ContentFile
+from django.contrib.auth.decorators import login_required
+from .models import Program, Thesis
+from .tasks import process_thesis_task
+from .scripts.extract_text import extract_text_from_pdf
+from .scripts.vector_cache import upload_to_gdrive_folder
+
+@login_required
+def upload_thesis_view(request):
+    if request.method == "POST":
+        title = request.POST.get("title")
+        authors = request.POST.get("authors")
+        year = request.POST.get("year")
+        program_id = request.POST.get("program")
+        document = request.FILES.get("document")
+
+        if not document:
+            return HttpResponse("❌ No file uploaded.", status=400)
+
+        try:
+            program = Program.objects.get(id=program_id)
+            file_data = document.read()
+
+            # Upload to Drive FIRST
+            gdrive_url = upload_to_gdrive_folder(file_data, document.name, program.name)
+
+            thesis = Thesis.objects.create(
+                title=title,
+                authors=authors,
+                year=year,
+                program=program,
+                document=document.name,  # ⛔ We only save the name!
+                gdrive_url=gdrive_url
+            )
+
+            process_thesis_task.delay(thesis.id)
+            return redirect("librarian_home")
+
+        except Program.DoesNotExist:
+            return HttpResponse("❌ Program not found", status=400)
+        except Exception as e:
+            return HttpResponse(f"❌ Error: {e}", status=500)
+
+    return redirect("librarian_home")
+
+
 def extract_metadata_from_text(text):
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     title, authors, abstract = "", "", ""
@@ -496,6 +518,7 @@ def extract_metadata_from_text(text):
 
     return title[:255], authors[:255], abstract
 
+
 def bulk_upload_single(request):
     if request.method == 'POST' and request.FILES.get("documents"):
         uploaded_file = request.FILES["documents"]
@@ -503,43 +526,34 @@ def bulk_upload_single(request):
 
         try:
             program_id = request.POST.get("program_id")
-            if not program_id:
-                return JsonResponse({"status": "❌ Error: Missing program ID", "success": False}, status=400)
-
             program = Program.objects.get(id=program_id)
 
-            # Save temporarily for extraction
+            # Save temp, extract metadata
             temp_path = f"/tmp/{uploaded_file.name}"
             with open(temp_path, "wb") as f:
                 f.write(file_data)
 
-            # Extract and parse metadata
             text = extract_text_from_pdf(temp_path)
             title, authors, abstract = extract_metadata_from_text(text)
-
-            # Extract year from filename
             year_match = re.search(r"(19|20)\d{2}", uploaded_file.name)
             year = int(year_match.group()) if year_match else 0
 
-            # Save to DB
+            gdrive_url = upload_to_gdrive_folder(file_data, uploaded_file.name, program.name)
+
             thesis = Thesis.objects.create(
                 title=title or uploaded_file.name,
                 authors=authors or "Unknown",
                 abstract=abstract or "",
                 year=year,
                 program=program,
-                document=ContentFile(file_data, name=uploaded_file.name)
+                document=uploaded_file.name,  # 👈 Store just name
+                gdrive_url=gdrive_url
             )
 
-            # Queue for async processing
             process_thesis_task.delay(thesis.id)
-
-            return JsonResponse({"status": "✅ Queued for processing", "success": True})
-
-        except Program.DoesNotExist:
-            return JsonResponse({"status": "❌ Error: Invalid program ID", "success": False}, status=400)
+            return JsonResponse({"status": "✅ Queued", "success": True})
 
         except Exception as e:
-            return JsonResponse({"status": f"❌ Error: {str(e)}", "success": False}, status=500)
+            return JsonResponse({"status": f"❌ {e}", "success": False}, status=500)
 
-    return JsonResponse({"status": "❌ Error: Invalid request", "success": False}, status=400)
+    return JsonResponse({"status": "❌ Invalid Request", "success": False}, status=400)

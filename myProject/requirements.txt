@@ -105,4 +105,3 @@ pytz==2025.2
 tornado==6.4.2
 
 
-/Users/Julia/Downloads/librarychatbotv3/myProject/staticfiles/Users/Julia/Downloads/librarychatbotv3/myProject/myApp/static

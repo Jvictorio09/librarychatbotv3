@@ -103,3 +103,6 @@ humanize==4.12.2
 prometheus-client==0.21.1 
 pytz==2025.2 
 tornado==6.4.2
+
+
+/Users/Julia/Downloads/librarychatbotv3/myProject/staticfiles/Users/Julia/Downloads/librarychatbotv3/myProject/myApp/static

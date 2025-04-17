@@ -9,7 +9,7 @@ from openai import OpenAI
 
 from myApp.scripts.vector_cache import (
     load_drive_service,
-    download_drive_file,
+    download_drive_file,  # ✅ Updated import
     get_latest_file_by_prefix
 )
 from myApp.scripts.embedding_utils import embed_text, build_prompt
@@ -18,7 +18,7 @@ from myApp.scripts.embedding_utils import embed_text, build_prompt
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# 📁 Temp paths (only used during runtime)
+# 📁 Temp paths (used at runtime)
 TMP_DIR = Path(tempfile.gettempdir())
 INDEX_PATH = TMP_DIR / "thesis_index.faiss"
 METADATA_PATH = TMP_DIR / "metadata.json"
@@ -32,14 +32,14 @@ def search_similar_chunks(index_path, metadata_path, question_vector, top_k=5):
     D, I = index.search(np.array([question_vector]), top_k)
     return [metadata[i] for i in I[0] if i < len(metadata)]
 
-# 🤖 Core Search Logic
+# 🤖 Main Query Handler
 def answer_query(query: str) -> str:
     print(f"🤖 Received query: {query}")
     try:
-        # ➕ Vectorize the input question
+        # ➕ Turn query into a vector
         question_vector = np.array(embed_text(query), dtype=np.float32)
 
-        # ⬇ Download index/metadata if not cached locally
+        # ⬇ Download from Drive if not locally cached
         if not INDEX_PATH.exists() or not METADATA_PATH.exists():
             print("⬇️ Missing local vector files. Fetching from Drive...")
             service = load_drive_service()
@@ -50,13 +50,16 @@ def answer_query(query: str) -> str:
             if not faiss_id or not meta_id:
                 raise Exception("❌ Required vector files not found on Drive.")
 
-            faiss_path = download_drive_file(service, "thesis_index.faiss", suffix=".faiss", folder="ja_vector_store")
-            meta_path = download_drive_file(service, "metadata.json", suffix=".json", folder="ja_vector_store")
+            faiss_url = f"https://drive.google.com/file/d/{faiss_id}/view"
+            meta_url = f"https://drive.google.com/file/d/{meta_id}/view"
+
+            faiss_path = download_drive_file(faiss_url, suffix=".faiss")
+            meta_path = download_drive_file(meta_url, suffix=".json")
         else:
             faiss_path = INDEX_PATH
             meta_path = METADATA_PATH
 
-        # 🔍 Retrieve relevant chunks
+        # 🔍 Run search
         similar_chunks = search_similar_chunks(faiss_path, meta_path, question_vector, top_k=5)
         prompt = build_prompt(similar_chunks, query) if similar_chunks else f"Answer this question:\n\n{query}"
 
@@ -64,7 +67,7 @@ def answer_query(query: str) -> str:
         print(f"⚠️ Vector search failed: {e}")
         prompt = f"Answer this question as best as you can:\n\n{query}"
 
-    # 🧠 OpenAI Response
+    # 🧠 OpenAI Answer
     try:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",

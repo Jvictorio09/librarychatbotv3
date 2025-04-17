@@ -3,6 +3,7 @@ import io
 import json
 import tempfile
 from datetime import datetime
+import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
@@ -73,14 +74,12 @@ def upload_to_gdrive_folder(file_data, filename, folder_name, root_folder="thesi
     print(f"✅ Uploaded: {filename} → {file_link}")
     return file_link
 
-# ⬇️ Download file by name (from a folder)
-import requests
-
+# ⬇️ Download file by public Drive URL
 def download_drive_file(url, suffix=".pdf"):
     try:
+        url = url.strip().replace(" ", "")
         file_id = None
 
-        # 🕵️ Extract file ID from shared GDrive URL
         if "drive.google.com" in url:
             if "id=" in url:
                 file_id = url.split("id=")[-1].split("&")[0]
@@ -88,15 +87,14 @@ def download_drive_file(url, suffix=".pdf"):
                 file_id = url.split("/d/")[-1].split("/")[0]
 
         if not file_id:
-            raise Exception("❌ Invalid Google Drive URL.")
+            print(f"❌ Could not parse file ID from URL: {url}")
+            raise Exception("Invalid Google Drive URL.")
 
         download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
 
-        # 📥 Fetch the file
         response = requests.get(download_url)
         response.raise_for_status()
 
-        # 💾 Save to /tmp/
         temp_path = os.path.join(tempfile.gettempdir(), f"downloaded_{file_id}{suffix}")
         with open(temp_path, "wb") as f:
             f.write(response.content)
@@ -107,7 +105,6 @@ def download_drive_file(url, suffix=".pdf"):
     except Exception as e:
         print(f"❌ Failed to download from Drive URL: {e}")
         return ""
-
 
 # 🔍 Find latest file by prefix (Drive vector logic)
 def get_latest_file_by_prefix(service, folder_name, prefix):

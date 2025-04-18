@@ -526,6 +526,14 @@ def upload_thesis_view(request):
 
     return redirect("librarian_home")
 
+import re
+import traceback
+from django.http import JsonResponse
+from django.core.files.base import ContentFile
+from .models import Program, Thesis
+from .scripts.extract_text import extract_text_from_pdf
+from .scripts.vector_cache import upload_to_gdrive_folder
+from .tasks import process_thesis_task
 
 def extract_metadata_from_text(text):
     lines = [line.strip() for line in text.split("\n") if line.strip()]
@@ -544,40 +552,55 @@ def extract_metadata_from_text(text):
 
 
 def bulk_upload_single(request):
-    if request.method == 'POST' and request.FILES.get("documents"):
-        uploaded_file = request.FILES["documents"]
-        file_data = uploaded_file.read()
+    if request.method != 'POST' or not request.FILES.get("documents"):
+        return JsonResponse({"status": "❌ Invalid Request", "success": False}, status=400)
+
+    uploaded_file = request.FILES["documents"]
+    file_data = uploaded_file.read()
+
+    try:
+        program_id = request.POST.get("program_id")
+        if not program_id:
+            return JsonResponse({"status": "❌ Missing Program ID", "success": False}, status=400)
 
         try:
-            program_id = request.POST.get("program_id")
             program = Program.objects.get(id=program_id)
+        except Program.DoesNotExist:
+            return JsonResponse({"status": "❌ Program not found", "success": False}, status=404)
 
-            # Save temp, extract metadata
-            temp_path = f"/tmp/{uploaded_file.name}"
-            with open(temp_path, "wb") as f:
-                f.write(file_data)
-
-            text = extract_text_from_pdf(temp_path)
-            title, authors, abstract = extract_metadata_from_text(text)
-            year_match = re.search(r"(19|20)\d{2}", uploaded_file.name)
-            year = int(year_match.group()) if year_match else 0
-
-            gdrive_url = upload_to_gdrive_folder(file_data, uploaded_file.name, program.name)
-
-            thesis = Thesis.objects.create(
-                title=title or uploaded_file.name,
-                authors=authors or "Unknown",
-                abstract=abstract or "",
-                year=year,
-                program=program,
-                document=uploaded_file.name,  # 👈 Store just name
-                gdrive_url=gdrive_url
-            )
-
-            process_thesis_task.delay(thesis.id)
-            return JsonResponse({"status": "✅ Queued", "success": True})
-
+        # 🧠 Extract text directly from in-memory file
+        try:
+            text = extract_text_from_pdf(ContentFile(file_data, name=uploaded_file.name))
         except Exception as e:
-            return JsonResponse({"status": f"❌ {e}", "success": False}, status=500)
+            print("❌ Error extracting text from PDF:", traceback.format_exc())
+            return JsonResponse({"status": "❌ Failed to extract text", "success": False}, status=500)
 
-    return JsonResponse({"status": "❌ Invalid Request", "success": False}, status=400)
+        title, authors, abstract = extract_metadata_from_text(text)
+        year_match = re.search(r"(19|20)\d{2}", uploaded_file.name)
+        year = int(year_match.group()) if year_match else 0
+
+        # ☁ Upload to Google Drive
+        try:
+            gdrive_url = upload_to_gdrive_folder(file_data, uploaded_file.name, program.name)
+        except Exception as e:
+            print("❌ Error uploading to Google Drive:", traceback.format_exc())
+            return JsonResponse({"status": "❌ Google Drive upload failed", "success": False}, status=500)
+
+        # 💾 Save to DB (save only filename, not full file)
+        thesis = Thesis.objects.create(
+            title=title or uploaded_file.name,
+            authors=authors or "Unknown",
+            abstract=abstract or "",
+            year=year,
+            program=program,
+            document=uploaded_file.name,  # only store the name
+            gdrive_url=gdrive_url
+        )
+
+        # 🚀 Queue async processing
+        process_thesis_task.delay(thesis.id)
+        return JsonResponse({"status": "✅ Thesis queued", "success": True})
+
+    except Exception as e:
+        print("❌ Unexpected error during bulk upload:", traceback.format_exc())
+        return JsonResponse({"status": f"❌ Unexpected error: {str(e)}", "success": False}, status=500)

@@ -11,27 +11,44 @@ from myApp.scripts.semantic_search import answer_query
 def chat_page(request):
     return render(request, "chatbot_app/chat.html")
 
+# chatbot_app/views.py
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import json
+
+from myApp.scripts.semantic_search import answer_query
+
+# ⚠️ In-memory session chat memory (ideal for testing; use Redis or DB in production)
+chat_memory = {}
+
 @csrf_exempt
 def chat_api(request):
-    if request.method != "POST":
-        return HttpResponseBadRequest("Only POST requests are allowed.")
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            message = data.get('message', '').strip()
 
-    try:
-        data = json.loads(request.body)
-        user_question = data.get("message")
+            if not message:
+                return JsonResponse({'reply': '❗Please enter a message before sending.'}, status=400)
 
-        if not user_question:
-            return JsonResponse({"reply": "❗Please enter a message before sending."}, status=400)
+            session_id = request.session.session_key or request.COOKIES.get('sessionid') or 'default'
 
-        print(f"📩 Incoming message: {user_question}")
-        response = answer_query(user_question)
-        return JsonResponse({"reply": response})
+            if session_id not in chat_memory:
+                chat_memory[session_id] = []
 
-    except json.JSONDecodeError:
-        return JsonResponse({"reply": "⚠️ Invalid request format."}, status=400)
-    except Exception as e:
-        print(f"❌ Chat API Error: {e}")
-        return JsonResponse({"reply": "Sorry, something went wrong. Please try again."}, status=500)
+            # 🧠 Fetch reply and updated session history from the LLM
+            reply, updated_history = answer_query(message, session_history=chat_memory[session_id])
+
+            # 💾 Save updated history
+            chat_memory[session_id] = updated_history
+
+            return JsonResponse({'reply': reply})
+
+        except Exception as e:
+            print(f"❌ Chat API Error: {e}")
+            return JsonResponse({'reply': '⚠️ Sorry, something went wrong. Please try again.'}, status=500)
+
+    return JsonResponse({'error': 'Only POST requests are allowed.'}, status=405)
 
 
 from django.contrib.auth.models import User

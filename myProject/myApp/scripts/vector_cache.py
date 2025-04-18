@@ -1,14 +1,16 @@
 import os
 import io
 import json
+import time
 import tempfile
-from datetime import datetime
 import requests
+from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from googleapiclient.errors import HttpError
 
-# 🔐 Load Drive service from embedded JSON in env
+# 🔐 Load Drive service from embedded JSON in environment
 def load_drive_service():
     raw_json = os.getenv("GDRIVE_SERVICE_JSON")
     if not raw_json:
@@ -17,13 +19,32 @@ def load_drive_service():
     creds_path = os.path.join(os.getcwd(), "credentials", "gdrive_service.json")
     os.makedirs(os.path.dirname(creds_path), exist_ok=True)
 
-    with open(creds_path, "w") as f:
-        f.write(raw_json)
+    # Only write file if not already created
+    if not os.path.exists(creds_path):
+        with open(creds_path, "w") as f:
+            f.write(raw_json)
 
     credentials = service_account.Credentials.from_service_account_file(
         creds_path, scopes=["https://www.googleapis.com/auth/drive"]
     )
     return build("drive", "v3", credentials=credentials)
+
+# 🛡 Retry permission creation with exponential backoff
+def create_permission_with_retry(service, file_id, retries=3, delay=2):
+    for attempt in range(retries):
+        try:
+            return service.permissions().create(
+                fileId=file_id,
+                body={"type": "anyone", "role": "reader"}
+            ).execute()
+        except HttpError as e:
+            if e.resp.status in [500, 503]:
+                print(f"⚠️ Retry {attempt+1}/{retries} - Google error {e.resp.status}. Waiting {delay}s...")
+                time.sleep(delay)
+                delay *= 2  # Exponential backoff
+            else:
+                raise e
+    raise Exception("❌ Failed to set permission after retries.")
 
 # 📁 Find or create folder inside Google Drive
 def find_or_create_folder(service, name, parent_id=None):
@@ -46,14 +67,14 @@ def find_or_create_folder(service, name, parent_id=None):
     folder = service.files().create(body=metadata, fields="id").execute()
     return folder.get("id")
 
-# ☁️ Upload file to Google Drive
-def upload_to_gdrive_folder(file_data, filename, folder_name, root_folder="thesis_uploads"):
+# ☁️ Upload file to a specific Drive folder (with optional cleanup)
+def upload_to_gdrive_folder(file_data, filename, folder_name, root_folder="thesis_uploads", cleanup=True):
     service = load_drive_service()
 
     parent_id = None if root_folder == "root" else find_or_create_folder(service, root_folder)
     folder_id = find_or_create_folder(service, folder_name, parent_id=parent_id)
 
-    # Save to temp
+    # Save file to temporary path
     temp_path = os.path.join(tempfile.gettempdir(), filename)
     with open(temp_path, "wb") as f:
         f.write(file_data)
@@ -68,13 +89,21 @@ def upload_to_gdrive_folder(file_data, filename, folder_name, root_folder="thesi
     media = MediaFileUpload(temp_path, resumable=True, mimetype=mimetype)
     uploaded = service.files().create(body=metadata, media_body=media, fields="id").execute()
 
-    # Make it public
-    service.permissions().create(fileId=uploaded["id"], body={"type": "anyone", "role": "reader"}).execute()
+    # Set file as public
+    create_permission_with_retry(service, uploaded["id"])
+
+    # Remove temp file if flag is set
+    if cleanup:
+        try:
+            os.remove(temp_path)
+        except Exception as e:
+            print(f"⚠️ Could not delete temp file: {e}")
+
     file_link = f"https://drive.google.com/file/d/{uploaded['id']}/view"
     print(f"✅ Uploaded: {filename} → {file_link}")
     return file_link
 
-# ⬇️ Download file by public Drive URL
+# ⬇️ Download file from public Drive URL to temp
 def download_drive_file(url, suffix=".pdf"):
     try:
         url = url.strip().replace(" ", "")
@@ -91,7 +120,6 @@ def download_drive_file(url, suffix=".pdf"):
             raise Exception("Invalid Google Drive URL.")
 
         download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-
         response = requests.get(download_url)
         response.raise_for_status()
 
@@ -106,7 +134,7 @@ def download_drive_file(url, suffix=".pdf"):
         print(f"❌ Failed to download from Drive URL: {e}")
         return ""
 
-# 🔍 Find latest file by prefix (Drive vector logic)
+# 🔍 Find the latest file in Drive folder by prefix
 def get_latest_file_by_prefix(service, folder_name, prefix):
     try:
         folder_id = find_or_create_folder(service, folder_name)
@@ -125,7 +153,7 @@ def get_latest_file_by_prefix(service, folder_name, prefix):
         print(f"❌ Error in get_latest_file_by_prefix: {e}")
         return None, None
 
-# 🗑 Delete Drive file by exact name in folder
+# 🗑 Delete specific file by name inside a folder
 def delete_drive_file_by_name(service, filename, folder_name):
     folder_id = find_or_create_folder(service, folder_name)
     query = f"'{folder_id}' in parents and name='{filename}'"

@@ -11,3 +11,4 @@ __pycache__/
 
 # Ignore credentials directory
 myProject/credentials/
+dump.rdb

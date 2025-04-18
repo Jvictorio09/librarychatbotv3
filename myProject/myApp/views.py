@@ -229,6 +229,14 @@ def password_reset_done(request):
     return render(request, 'partials/password_reset_done.html')
 
 
+from django.contrib.auth.forms import SetPasswordForm
+from django.utils.http import urlsafe_base64_decode
+from django.utils.encoding import force_str
+from django.contrib import messages
+from django.shortcuts import render, redirect
+from django.contrib.auth.models import User
+from django.contrib.auth.tokens import default_token_generator
+
 # 🔁 Step 3: Password Reset Link — Set new password
 def password_reset_confirm(request, uidb64, token):
     try:
@@ -242,13 +250,16 @@ def password_reset_confirm(request, uidb64, token):
             form = SetPasswordForm(user, request.POST)
             if form.is_valid():
                 form.save()
+                messages.success(request, "✅ Your password has been successfully changed. You may now log in.")
                 return redirect('login')
+            else:
+                messages.error(request, "⚠️ Please correct the errors below.")
         else:
             form = SetPasswordForm(user)
         return render(request, 'partials/password_reset_confirm.html', {'form': form})
     else:
+        messages.error(request, "❌ The password reset link is invalid or has expired.")
         return render(request, 'partials/password_reset_invalid.html')
-
 
 
 # myApp/views.py

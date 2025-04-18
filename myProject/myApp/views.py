@@ -1,5 +1,4 @@
 # myApp/views.py
-
 import json
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
@@ -11,42 +10,92 @@ from myApp.scripts.semantic_search import answer_query
 def chat_page(request):
     return render(request, "chatbot_app/chat.html")
 
-# chatbot_app/views.py
-from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
 import json
 
 from myApp.scripts.semantic_search import answer_query
 
-# ⚠️ In-memory session chat memory (ideal for testing; use Redis or DB in production)
+# ⚠️ In-memory session chat memory (temporary; swap to Redis/DB for prod)
+chat_memory = {}
+import json, os, tempfile
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+
+from myApp.scripts.semantic_search import answer_query
+
+# ⚠️ In-memory chat store — best for dev/testing
 chat_memory = {}
 
 @csrf_exempt
 def chat_api(request):
     if request.method == 'POST':
         try:
-            data = json.loads(request.body)
-            message = data.get('message', '').strip()
+            message = None
+            uploaded_text = None
+            uploaded_file_path = None
+            uploaded_file = None
+            current_file_name = None
 
-            if not message:
-                return JsonResponse({'reply': '❗Please enter a message before sending.'}, status=400)
+            # 📦 Handle JSON vs multipart/form-data
+            if request.content_type.startswith('application/json'):
+                data = json.loads(request.body)
+                message = data.get('message', '').strip()
+            else:
+                message = request.POST.get('message', '').strip()
+                uploaded_file = request.FILES.get('file')
+                if uploaded_file:
+                    current_file_name = uploaded_file.name
 
+                    # Save file temporarily
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(current_file_name)[1]) as tmp_file:
+                        for chunk in uploaded_file.chunks():
+                            tmp_file.write(chunk)
+                        uploaded_file_path = tmp_file.name
+
+                    # Try to read text content if not PDF
+                    if not current_file_name.lower().endswith('.pdf'):
+                        try:
+                            uploaded_text = open(uploaded_file_path, 'r', encoding='utf-8', errors='ignore').read()
+                        except Exception as e:
+                            print(f"⚠️ Could not read uploaded file: {e}")
+                            uploaded_text = None
+
+            # 🧠 Handle user session
             session_id = request.session.session_key or request.COOKIES.get('sessionid') or 'default'
 
             if session_id not in chat_memory:
                 chat_memory[session_id] = []
 
-            # 🧠 Fetch reply and updated session history from the LLM
-            reply, updated_history = answer_query(message, session_history=chat_memory[session_id])
+            # 🧽 Reset memory if file changes (prevent ghost memory)
+            last_file_name = request.session.get('last_uploaded_filename')
+            if current_file_name and current_file_name != last_file_name:
+                chat_memory[session_id] = []  # Clear old memory
+                print(f"🧹 Chat memory reset for session '{session_id}' due to new file: {current_file_name}")
+                request.session['last_uploaded_filename'] = current_file_name
 
-            # 💾 Save updated history
+            # 🧠 Call AI logic
+            reply, updated_history = answer_query(
+                query=message or "[User uploaded a file]",
+                session_history=chat_memory[session_id],
+                uploaded_text=uploaded_text,
+                uploaded_file_path=uploaded_file_path
+            )
+
+            # 💾 Update in-memory store
             chat_memory[session_id] = updated_history
 
-            return JsonResponse({'reply': reply})
+            # 🧼 Delete temp file
+            if uploaded_file_path and os.path.exists(uploaded_file_path):
+                os.remove(uploaded_file_path)
+
+            from django.utils.safestring import mark_safe
+            return JsonResponse({'reply': mark_safe(reply)})
+
 
         except Exception as e:
             print(f"❌ Chat API Error: {e}")
-            return JsonResponse({'reply': '⚠️ Sorry, something went wrong. Please try again.'}, status=500)
+            return JsonResponse({'reply': '⚠️ Something went wrong. Please try again.'}, status=500)
 
     return JsonResponse({'error': 'Only POST requests are allowed.'}, status=405)
 

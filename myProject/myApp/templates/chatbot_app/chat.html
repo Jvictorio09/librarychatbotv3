@@ -244,6 +244,26 @@
     font-weight: 500;
     color: #555;
   }
+
+  .upload-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background-color: #025450;
+  color: white;
+  margin-right: 10px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.upload-icon:hover {
+  background-color: #01736f;
+}
+
 </style>
 {% include "partials/logged_in_header.html" %}
 <div class="chat-wrapper">
@@ -260,10 +280,30 @@
 
     <div class="chat-box" id="chat-box"></div>
 
-    <form class="chat-footer" id="chat-form">
+    <form class="chat-footer" id="chat-form" enctype="multipart/form-data">
+      <label for="chat-file" class="upload-icon" title="Upload File">
+        <i class="fas fa-plus"></i>
+      </label>
+      <input type="file" id="chat-file" name="file" accept=".txt,.pdf,.doc,.docx" style="display: none;">
+      
+      <div id="file-name-preview" style="
+  margin-right: 10px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background-color: #f0f0f0;
+  font-size: 0.85rem;
+  color: #333;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+"></div>
+
       <input type="text" id="chat-input" placeholder="Type your question..." required>
       <button type="submit"><i class="fas fa-paper-plane"></i></button>
     </form>
+    
+    
   </div>
 </div>
 
@@ -271,72 +311,37 @@
   const chatBox = document.getElementById('chat-box');
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
-
+  const fileInput = document.getElementById('chat-file');
+  const filePreview = document.getElementById('file-name-preview');
+  
   function getCSRFToken() {
     return document.querySelector('meta[name="csrf-token"]').getAttribute('content');
   }
-
-  function showTypingIndicator() {
-    const typingDiv = document.createElement('div');
-    typingDiv.className = 'message bot typing-indicator has-avatar';
-    typingDiv.id = 'typing-indicator';
-
-    const avatar = document.createElement('div');
-    avatar.className = 'chat-head-embed';
-
-    const textDiv = document.createElement('div');
-    textDiv.className = 'bot-text';
-    textDiv.innerHTML = `
-      <div class="analyzing-text">Analyzing...</div>
-      <div class="typing-dots">
-        <span></span><span></span><span></span>
-      </div>
-    `;
-
-    typingDiv.appendChild(avatar);
-    typingDiv.appendChild(textDiv);
-    chatBox.appendChild(typingDiv);
-    chatBox.scrollTop = chatBox.scrollHeight;
+  
+  function formatReply(html) {
+    let decoded = html;
+    decoded = decoded.replace(/\n/g, '<br>');
+    decoded = decoded.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    decoded = decoded.replace(/==(.+?)==/g, '<mark>$1</mark>');
+    decoded = decoded.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    decoded = decoded.replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>');
+    decoded = decoded.replace(/!!(.*?)!!/g, '<span class="spoiler" onclick="this.classList.toggle(\'revealed\')">[spoiler]</span><span class="spoiler-content">$1</span>');
+    return decoded;
   }
-
-  function hideTypingIndicator() {
-    const typing = document.getElementById('typing-indicator');
-    if (typing) typing.remove();
-  }
-
-  function typeEffect(textDiv, message, speed = 15, callback = null) {
-    let i = 0;
-    textDiv.innerHTML = '';
-    const interval = setInterval(() => {
-      if (i < message.length) {
-        textDiv.innerHTML += message.charAt(i);
-        chatBox.scrollTop = chatBox.scrollHeight;
-        i++;
-      } else {
-        clearInterval(interval);
-        if (callback) callback();
-      }
-    }, speed);
-  }
-
+  
   function appendMessage(sender, message) {
     const msgWrapper = document.createElement('div');
-
     if (sender === 'Bot') {
       msgWrapper.className = 'message bot has-avatar';
-
       const avatar = document.createElement('div');
       avatar.className = 'chat-head-embed';
-
       const textDiv = document.createElement('div');
       textDiv.className = 'bot-text';
-
       msgWrapper.appendChild(avatar);
       msgWrapper.appendChild(textDiv);
       chatBox.appendChild(msgWrapper);
       chatBox.scrollTop = chatBox.scrollHeight;
-
-      typeEffect(textDiv, message); // typewriter effect
+      typeEffect(textDiv, formatReply(message));
     } else {
       msgWrapper.className = 'message user';
       msgWrapper.innerText = message;
@@ -344,43 +349,89 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
   }
-
-  // Initial Bot Greeting
+  
+  function showTypingIndicator() {
+    const typingDiv = document.createElement('div');
+    typingDiv.className = 'message bot typing-indicator has-avatar';
+    typingDiv.id = 'typing-indicator';
+    const avatar = document.createElement('div');
+    avatar.className = 'chat-head-embed';
+    const textDiv = document.createElement('div');
+    textDiv.className = 'bot-text';
+    textDiv.innerHTML = `
+      <div class="analyzing-text">Analyzing...</div>
+      <div class="typing-dots">
+        <span></span><span></span><span></span>
+      </div>`;
+    typingDiv.appendChild(avatar);
+    typingDiv.appendChild(textDiv);
+    chatBox.appendChild(typingDiv);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+  
+  function hideTypingIndicator() {
+    const typing = document.getElementById('typing-indicator');
+    if (typing) typing.remove();
+  }
+  
+  function typeEffect(textDiv, html, speed = 15, callback = null) {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    const nodes = Array.from(tempDiv.childNodes);
+    textDiv.innerHTML = '';
+    let i = 0;
+    function typeNextNode() {
+      if (i >= nodes.length) return callback && callback();
+      const node = nodes[i++];
+      textDiv.appendChild(node);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      setTimeout(typeNextNode, speed * 5);
+    }
+    typeNextNode();
+  }
+  
   window.addEventListener('DOMContentLoaded', () => {
     appendMessage('Bot', "👋 Hello! I'm KaAI — your thesis buddy! What can I help you with today? Feel free to ask about formatting, defense prep, or anything thesis-related.");
   });
-
-  // Form Submit
+  
+  fileInput.addEventListener('change', () => {
+    filePreview.textContent = fileInput.files.length ? fileInput.files[0].name : '';
+  });
+  
   chatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const userMessage = chatInput.value.trim();
-    if (!userMessage) return;
-
-    appendMessage('You', userMessage);
+    const file = fileInput.files[0];
+    if (!userMessage && !file) {
+      alert("Please enter a message or upload a file.");
+      return;
+    }
+    appendMessage('You', `${userMessage}${file ? `\n📎 Attached: ${file.name}` : ''}`);
     chatInput.value = '';
+    fileInput.value = '';
+    filePreview.textContent = '';
     showTypingIndicator();
-
     try {
+      const formData = new FormData();
+      formData.append('message', userMessage);
+      if (file) formData.append('file', file);
       const response = await fetch('/chatbot_app/chat/', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'X-CSRFToken': getCSRFToken()
         },
-        body: JSON.stringify({ message: userMessage })
+        body: formData
       });
-
       const data = await response.json();
-
       setTimeout(() => {
         hideTypingIndicator();
         appendMessage('Bot', data.reply);
-      }, 500); // Optional delay for realism
+      }, 400);
     } catch (err) {
       console.error(err);
       hideTypingIndicator();
       appendMessage('Bot', '⚠️ Something went wrong.');
     }
   });
-</script>
+  </script>
 {% endblock %}

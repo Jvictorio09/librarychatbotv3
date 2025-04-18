@@ -228,12 +228,13 @@ socket.onerror = (e) => console.error("❌ WebSocket Error:", e);
   <div class="actions">
     <button type="submit">🗑️ Delete Selected</button>
     {% if page_obj.has_previous %}
-      <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}" class="edit-button">⬅ Prev</a>
+  <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if selected_program %}&program={{ selected_program.id }}{% endif %}" class="edit-button">⬅ Prev</a>
     {% endif %}
     Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
     {% if page_obj.has_next %}
-      <a href="?page={{ page_obj.next_page_number }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}" class="edit-button">Next ➡</a>
+      <a href="?page={{ page_obj.next_page_number }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if selected_program %}&program={{ selected_program.id }}{% endif %}" class="edit-button">Next ➡</a>
     {% endif %}
+
   </div>
 </form>
 

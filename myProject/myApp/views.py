@@ -527,6 +527,8 @@ def upload_thesis_view(request):
     return redirect("librarian_home")
 
 import re
+import os
+import tempfile
 import traceback
 from django.http import JsonResponse
 from django.core.files.base import ContentFile
@@ -563,44 +565,54 @@ def bulk_upload_single(request):
         if not program_id:
             return JsonResponse({"status": "❌ Missing Program ID", "success": False}, status=400)
 
-        try:
-            program = Program.objects.get(id=program_id)
-        except Program.DoesNotExist:
-            return JsonResponse({"status": "❌ Program not found", "success": False}, status=404)
+        program = Program.objects.get(id=program_id)
 
-        # 🧠 Extract text directly from in-memory file
+        # 🧠 Write to temp file before passing to fitz
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+            tmp_pdf.write(file_data)
+            temp_pdf_path = tmp_pdf.name
+
+        # 🧠 Extract metadata
         try:
-            text = extract_text_from_pdf(ContentFile(file_data, name=uploaded_file.name))
+            text = extract_text_from_pdf(temp_pdf_path)
+            title, authors, abstract = extract_metadata_from_text(text)
         except Exception as e:
             print("❌ Error extracting text from PDF:", traceback.format_exc())
-            return JsonResponse({"status": "❌ Failed to extract text", "success": False}, status=500)
+            os.remove(temp_pdf_path)
+            return JsonResponse({"status": f"❌ Failed to extract text: {uploaded_file.name}", "success": False}, status=500)
 
-        title, authors, abstract = extract_metadata_from_text(text)
         year_match = re.search(r"(19|20)\d{2}", uploaded_file.name)
         year = int(year_match.group()) if year_match else 0
 
-        # ☁ Upload to Google Drive
+        # ☁ Upload to Drive
         try:
             gdrive_url = upload_to_gdrive_folder(file_data, uploaded_file.name, program.name)
         except Exception as e:
+            os.remove(temp_pdf_path)
             print("❌ Error uploading to Google Drive:", traceback.format_exc())
-            return JsonResponse({"status": "❌ Google Drive upload failed", "success": False}, status=500)
+            return JsonResponse({"status": f"❌ Drive upload failed: {uploaded_file.name}", "success": False}, status=500)
 
-        # 💾 Save to DB (save only filename, not full file)
+        # 💾 Save to DB
         thesis = Thesis.objects.create(
             title=title or uploaded_file.name,
             authors=authors or "Unknown",
             abstract=abstract or "",
             year=year,
             program=program,
-            document=uploaded_file.name,  # only store the name
+            document=uploaded_file.name,
             gdrive_url=gdrive_url
         )
 
-        # 🚀 Queue async processing
+        # 🚀 Queue async embedding
         process_thesis_task.delay(thesis.id)
-        return JsonResponse({"status": "✅ Thesis queued", "success": True})
 
+        # 🧹 Cleanup temp file
+        os.remove(temp_pdf_path)
+
+        return JsonResponse({"status": f"✅ Queued: {uploaded_file.name}", "success": True})
+
+    except Program.DoesNotExist:
+        return JsonResponse({"status": "❌ Program not found", "success": False}, status=404)
     except Exception as e:
-        print("❌ Unexpected error during bulk upload:", traceback.format_exc())
-        return JsonResponse({"status": f"❌ Unexpected error: {str(e)}", "success": False}, status=500)
+        print("❌ Unexpected error:", traceback.format_exc())
+        return JsonResponse({"status": f"❌ Unexpected error: {e}", "success": False}, status=500)

@@ -126,55 +126,75 @@
 </div>
 
 <script>
-    document.getElementById('upload-form').addEventListener('submit', function(e) {
-      e.preventDefault();
-  
-      const files = document.getElementById('documents').files;
-      const programId = document.getElementById('program_id').value;
-      if (!files.length || !programId) return alert("Please select a program and at least one PDF file.");
-  
-      const statusList = document.getElementById('status-list');
-      const summary = document.getElementById('progress-summary');
-      statusList.innerHTML = '';
-      summary.textContent = `Uploading 0 of ${files.length}...`;
-  
-      let uploadedCount = 0;
-  
-      Array.from(files).forEach((file, index) => {
-        const listItem = document.createElement('li');
-        listItem.textContent = `${file.name} — Uploading...`;
-        statusList.appendChild(listItem);
-  
-        const singleFile = new FormData();
-        singleFile.append("documents", file);
-        singleFile.append("program_id", programId);
-  
-        fetch("{% url 'bulk_upload_single' %}", {
-          method: "POST",
-          body: singleFile,
-          headers: {
-            "X-CSRFToken": "{{ csrf_token }}"
-          }
-        })
-        .then(res => res.json())
-        .then(data => {
-          uploadedCount++;
-          if (data.success) {
-            listItem.classList.add('success');
-          } else {
-            listItem.classList.add('error');
-          }
-          listItem.textContent = `${file.name} — ${data.status || 'Done'}`;
-          summary.textContent = `Uploaded ${uploadedCount} of ${files.length}`;
-        })
-        .catch(err => {
-          uploadedCount++;
+  document.getElementById('upload-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const files = document.getElementById('documents').files;
+    const programId = document.getElementById('program_id').value;
+    if (!files.length || !programId) return alert("Please select a program and at least one PDF file.");
+
+    const statusList = document.getElementById('status-list');
+    const summary = document.getElementById('progress-summary');
+    statusList.innerHTML = '';
+    summary.textContent = `Uploading 0 of ${files.length}...`;
+
+    let uploadedCount = 0;
+
+    const uploadSingleFile = (file, listItem) => {
+      const formData = new FormData();
+      formData.append("documents", file);
+      formData.append("program_id", programId);
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);  // ⏱️ Timeout after 15s
+
+      fetch("{% url 'bulk_upload_single' %}", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-CSRFToken": "{{ csrf_token }}"
+        },
+        signal: controller.signal
+      })
+      .then(res => res.json())
+      .then(data => {
+        clearTimeout(timeout);
+        uploadedCount++;
+        listItem.textContent = `${file.name} — ${data.status}`;
+        if (data.success) {
+          listItem.classList.add('success');
+        } else {
           listItem.classList.add('error');
-          listItem.textContent = `${file.name} — Failed to upload`;
-          summary.textContent = `Uploaded ${uploadedCount} of ${files.length}`;
-        });
+          const retryBtn = document.createElement('button');
+          retryBtn.textContent = '🔁 Retry';
+          retryBtn.style.marginLeft = 'auto';
+          retryBtn.onclick = () => uploadSingleFile(file, listItem);
+          listItem.appendChild(retryBtn);
+        }
+        summary.textContent = `Uploaded ${uploadedCount} of ${files.length}`;
+      })
+      .catch(err => {
+        clearTimeout(timeout);
+        uploadedCount++;
+        listItem.classList.add('error');
+        listItem.textContent = `${file.name} — ❌ Timeout or Upload Error`;
+        const retryBtn = document.createElement('button');
+        retryBtn.textContent = '🔁 Retry';
+        retryBtn.style.marginLeft = 'auto';
+        retryBtn.onclick = () => uploadSingleFile(file, listItem);
+        listItem.appendChild(retryBtn);
+        summary.textContent = `Uploaded ${uploadedCount} of ${files.length}`;
       });
+    };
+
+    Array.from(files).forEach(file => {
+      const listItem = document.createElement('li');
+      listItem.textContent = `${file.name} — Uploading...`;
+      statusList.appendChild(listItem);
+      uploadSingleFile(file, listItem);
     });
-  </script>
+  });
+</script>
+
   
 {% endblock %}

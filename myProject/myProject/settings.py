@@ -163,9 +163,16 @@ DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER)
 ASGI_APPLICATION = "myProject.asgi.application"
 
 from urllib.parse import urlparse
-
+# 🔁 Redis URL (Local or Production)
 redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 parsed_redis = urlparse(redis_url)
+
+
+CELERY_BROKER_URL = redis_url
+CELERY_RESULT_BACKEND = redis_url
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 CHANNEL_LAYERS = {
     "default": {
@@ -175,11 +182,4 @@ CHANNEL_LAYERS = {
         },
     },
 }
-
-
-CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 

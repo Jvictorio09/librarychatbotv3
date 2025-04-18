@@ -525,11 +525,11 @@ def upload_thesis_view(request):
             return HttpResponse(f"❌ Error: {e}", status=500)
 
     return redirect("librarian_home")
-
 import re
 import os
 import tempfile
 import traceback
+import datetime
 from django.http import JsonResponse
 from django.core.files.base import ContentFile
 from .models import Program, Thesis
@@ -537,22 +537,48 @@ from .scripts.extract_text import extract_text_from_pdf
 from .scripts.vector_cache import upload_to_gdrive_folder
 from .tasks import process_thesis_task
 
-def extract_metadata_from_text(text):
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-    title, authors, abstract = "", "", ""
+# 🧠 Improved metadata extraction
+def extract_metadata(text, filename="Untitled.pdf"):
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
 
-    for i, line in enumerate(lines):
-        if not title and len(line.split()) > 4:
-            title = line
-        if not authors and ("By" in line or "Author" in line):
-            authors = lines[i + 1] if i + 1 < len(lines) else line
-        if "ABSTRACT" in line.upper():
-            abstract = "\n".join(lines[i + 1:i + 5])
+    # YEAR from filename or first 20 lines
+    year_match = re.search(r"20\d{2}", filename)
+    if not year_match:
+        for line in lines[:20]:
+            match = re.search(r"\b(20\d{2})\b", line)
+            if match:
+                year_match = match
+                break
+    year = int(year_match.group()) if year_match else datetime.datetime.now().year
+
+    # TITLE: First long-enough line
+    title = next((line for line in lines if len(line.split()) > 6), "Untitled").title()[:255]
+
+    # AUTHORS: Look for name/email patterns
+    authors = "Unknown"
+    for line in lines:
+        if '@' in line or re.search(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b', line):
+            authors = line.title()
             break
+    authors = authors[:255]
 
-    return title[:255], authors[:255], abstract
+    # ABSTRACT: Capture lines after 'abstract'
+    abstract_lines = []
+    abstract_started = False
+    for line in lines:
+        if 'abstract' in line.lower():
+            abstract_started = True
+            continue
+        if abstract_started:
+            if line.lower().startswith("keywords") or len(line) < 5:
+                break
+            abstract_lines.append(line)
+    abstract = " ".join(abstract_lines).strip()[:5000] or "No abstract found."
+
+    return title, authors, year, abstract
 
 
+# 🧠 Per-file bulk upload handler
 def bulk_upload_single(request):
     if request.method != 'POST' or not request.FILES.get("documents"):
         return JsonResponse({"status": "❌ Invalid Request", "success": False}, status=400)
@@ -567,52 +593,48 @@ def bulk_upload_single(request):
 
         program = Program.objects.get(id=program_id)
 
-        # 🧠 Write to temp file before passing to fitz
+        # Write to temp file for fitz reading
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
             tmp_pdf.write(file_data)
             temp_pdf_path = tmp_pdf.name
 
-        # 🧠 Extract metadata
+        # Extract metadata
         try:
             text = extract_text_from_pdf(temp_pdf_path)
-            title, authors, abstract = extract_metadata_from_text(text)
-        except Exception as e:
+            title, authors, year, abstract = extract_metadata(text, uploaded_file.name)
+        except Exception:
             print("❌ Error extracting text from PDF:", traceback.format_exc())
             os.remove(temp_pdf_path)
             return JsonResponse({"status": f"❌ Failed to extract text: {uploaded_file.name}", "success": False}, status=500)
 
-        year_match = re.search(r"(19|20)\d{2}", uploaded_file.name)
-        year = int(year_match.group()) if year_match else 0
-
-        # ☁ Upload to Drive
+        # Upload to Google Drive
         try:
             gdrive_url = upload_to_gdrive_folder(file_data, uploaded_file.name, program.name)
-        except Exception as e:
+        except Exception:
             os.remove(temp_pdf_path)
             print("❌ Error uploading to Google Drive:", traceback.format_exc())
             return JsonResponse({"status": f"❌ Drive upload failed: {uploaded_file.name}", "success": False}, status=500)
 
-        # 💾 Save to DB
+        # Save to DB
         thesis = Thesis.objects.create(
-            title=title or uploaded_file.name,
-            authors=authors or "Unknown",
-            abstract=abstract or "",
+            title=title,
+            authors=authors,
+            abstract=abstract,
             year=year,
             program=program,
             document=uploaded_file.name,
             gdrive_url=gdrive_url
         )
 
-        # 🚀 Queue async embedding
+        # Trigger async Celery task
         process_thesis_task.delay(thesis.id)
 
-        # 🧹 Cleanup temp file
         os.remove(temp_pdf_path)
 
         return JsonResponse({"status": f"✅ Queued: {uploaded_file.name}", "success": True})
 
     except Program.DoesNotExist:
         return JsonResponse({"status": "❌ Program not found", "success": False}, status=404)
-    except Exception as e:
+    except Exception:
         print("❌ Unexpected error:", traceback.format_exc())
-        return JsonResponse({"status": f"❌ Unexpected error: {e}", "success": False}, status=500)
+        return JsonResponse({"status": f"❌ Unexpected error: {uploaded_file.name}", "success": False}, status=500)

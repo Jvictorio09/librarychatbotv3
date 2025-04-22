@@ -55,7 +55,11 @@ def list_files_in_folder(folder_name):
         return []
 
     for file in files:
-        print(f"  📄 {file['name']} — {file['mimeType']} — Created: {file['createdTime']}")
+            file_id = file['id']
+            public_link = f"https://drive.google.com/file/d/{file_id}/view"
+            print(f"  📄 {file['name']} — {file['mimeType']} — Created: {file['createdTime']}")
+            print(f"     🔗 {public_link}")
+            print(f"  📄 {file['name']} — {file['mimeType']} — Created: {file['createdTime']}")
 
     print(f"📦 Total files in '{folder_name}': {len(files)}")
     return files

@@ -23,7 +23,7 @@
 
   .chat-container {
     width: 95%;
-    max-width: 1000px;
+    height: 695px;
     background: #fff;
     border-radius: 16px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
@@ -119,14 +119,18 @@
   }
 
   .bot-text {
-    background: #e0e0e0;
-    padding: 14px 18px;
-    border-radius: 0 18px 18px 18px;
-    color: #333;
-    font-size: 1.05rem;
-    line-height: 1.5;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
-  }
+  display: inline-block;
+  background: #e0e0e0;
+  padding: 14px 18px;
+  border-radius: 0 18px 18px 18px;
+  color: #333;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
+  max-width: 85%;
+  word-break: break-word;
+}
+
 
   .chat-footer {
     display: flex;
@@ -264,19 +268,82 @@
   background-color: #01736f;
 }
 
+.citation-box {
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: #f4f9f8;
+  border-left: 4px solid #025450;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: #333;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+}
+
+.citation-box .archive-label {
+  font-size: 1.1rem;
+  margin-right: 6px;
+}
+
+.citation-box .byline {
+  color: #027f7a;
+  font-weight: 500;
+}
+
+.citation-box .view-link {
+  margin-top: 6px;
+  display: inline-block;
+  color: #025450;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.citation-box .view-link:hover {
+  text-decoration: underline;
+}
+
+.chat-footer textarea {
+  flex-grow: 1;
+  padding: 14px;
+  border-radius: 10px;
+  border: 2px solid #ddd;
+  font-size: 1rem;
+  outline: none;
+  resize: none;
+  line-height: 1.4;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+
 </style>
 {% include "partials/logged_in_header.html" %}
 <div class="chat-wrapper">
   <div class="chat-container">
     <div class="chat-header_chat">
       KaAI | Thesis Assistant
-      <div class="info-icon">
-        <i class="fas fa-info-circle"></i>
-        <div class="tooltip">
-          This chatbot is designed to help with your thesis and capstone projects. Ask anything—from structure and research to formatting and defense preparation.
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <button id="new-chat-btn" style="
+          background: white;
+          color: #025450;
+          padding: 6px 12px;
+          border: 2px solid #025450;
+          border-radius: 8px;
+          font-size: 0.85rem;
+          cursor: pointer;
+          transition: background-color 0.3s ease;
+        ">
+          🗑️ New Chat
+        </button>
+        <div class="info-icon">
+          <i class="fas fa-info-circle"></i>
+          <div class="tooltip">
+            This chatbot is designed to help with your thesis and capstone projects. Ask anything—from structure and research to formatting and defense preparation.
+          </div>
         </div>
+        
       </div>
     </div>
+    
 
     <div class="chat-box" id="chat-box"></div>
 
@@ -299,7 +366,8 @@
   white-space: nowrap;
 "></div>
 
-      <input type="text" id="chat-input" placeholder="Type your question..." required>
+      <textarea id="chat-input" rows="1" placeholder="Type your question..." required></textarea>
+
       <button type="submit"><i class="fas fa-paper-plane"></i></button>
     </form>
     
@@ -319,15 +387,29 @@
   }
   
   function formatReply(html) {
-    let decoded = html;
-    decoded = decoded.replace(/\n/g, '<br>');
-    decoded = decoded.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    decoded = decoded.replace(/==(.+?)==/g, '<mark>$1</mark>');
-    decoded = decoded.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-    decoded = decoded.replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>');
-    decoded = decoded.replace(/!!(.*?)!!/g, '<span class="spoiler" onclick="this.classList.toggle(\'revealed\')">[spoiler]</span><span class="spoiler-content">$1</span>');
-    return decoded;
-  }
+  let decoded = html;
+  decoded = decoded.replace(/\n/g, '<br>');
+  decoded = decoded.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  decoded = decoded.replace(/==(.+?)==/g, '<mark>$1</mark>');
+  decoded = decoded.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+  decoded = decoded.replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>');
+  decoded = decoded.replace(/!!(.*?)!!/g, '<span class="spoiler" onclick="this.classList.toggle(\'revealed\')">[spoiler]</span><span class="spoiler-content">$1</span>');
+
+  // 🎯 Enhance thesis citation formatting with a "Load This File" button
+  decoded = decoded.replace(
+    /📁 Title: "(.*?)"<br>🖋️ by (.*?)<br>📚 (.*?) \((\d{4})\)<br>🔗 \[View File\]\((.*?)\)/g,
+    `<div class="citation-box">
+      <div><span class="archive-label">📁</span> <strong>Title:</strong> "$1"</div>
+      <div><strong>🖋️ Author:</strong> <span class="byline">$2</span></div>
+      <div><strong>📚 Program:</strong> $3 | <strong>Year:</strong> $4</div>
+      <a class="view-link" href="$5" target="_blank">🔗 View Full Thesis</a><br>
+      <button class="load-file-btn" data-url="$5">📄 Load This File</button>
+    </div>`
+  );
+
+  return decoded;
+}
+
   
   function appendMessage(sender, message) {
     const msgWrapper = document.createElement('div');
@@ -398,40 +480,103 @@
     filePreview.textContent = fileInput.files.length ? fileInput.files[0].name : '';
   });
   
-  chatForm.addEventListener('submit', async (e) => {
+  // ✅ Shift+Enter = new line | Enter = submit
+chatInput.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    const userMessage = chatInput.value.trim();
-    const file = fileInput.files[0];
-    if (!userMessage && !file) {
-      alert("Please enter a message or upload a file.");
-      return;
+    chatForm.requestSubmit(); // simulate form submission
+  }
+});
+
+// ✅ Auto-resize textarea as you type
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = chatInput.scrollHeight + 'px';
+});
+
+// ✅ Submit chat form (Enter key triggers this)
+chatForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const userMessage = chatInput.value.trim();
+  const file = fileInput.files[0];
+
+  if (!userMessage && !file) {
+    alert("Please enter a message or upload a file.");
+    return;
+  }
+
+  appendMessage('You', `${userMessage}${file ? `\n📎 Attached: ${file.name}` : ''}`);
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+  fileInput.value = '';
+  filePreview.textContent = '';
+  showTypingIndicator();
+
+  try {
+    const formData = new FormData();
+    formData.append('message', userMessage);
+    if (file) formData.append('file', file);
+
+    const response = await fetch('/chatbot_app/chat/', {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCSRFToken()
+      },
+      body: formData
+    });
+
+    const data = await response.json();
+    hideTypingIndicator();
+
+    // 📄 Subtle feedback when KaAI lazily scans from GDrive
+    if (data.file_scanned) {
+      appendMessage('Bot', "📄 Just a moment... I'm reading the thesis you asked about. 🧠");
     }
-    appendMessage('You', `${userMessage}${file ? `\n📎 Attached: ${file.name}` : ''}`);
-    chatInput.value = '';
-    fileInput.value = '';
-    filePreview.textContent = '';
+
+    setTimeout(() => {
+      appendMessage('Bot', data.reply);
+    }, 400);
+
+  } catch (err) {
+    console.error(err);
+    hideTypingIndicator();
+    appendMessage('Bot', '⚠️ Something went wrong.');
+  }
+});
+
+
+
+  document.getElementById('new-chat-btn').addEventListener('click', () => {
+  if (confirm("Start a new chat? This will clear your current conversation.")) {
+    chatBox.innerHTML = '';
+    appendMessage('Bot', "👋 Hello! I'm KaAI — your thesis buddy! What can I help you with today? Feel free to ask about formatting, defense prep, or anything thesis-related.");
+  }
+});
+
+chatBox.addEventListener('click', async (e) => {
+  if (e.target.classList.contains('load-file-btn')) {
+    const url = e.target.getAttribute('data-url');
+    appendMessage('Bot', '📄 Just a moment... I\'m reading the thesis you selected.');
     showTypingIndicator();
-    try {
-      const formData = new FormData();
-      formData.append('message', userMessage);
-      if (file) formData.append('file', file);
-      const response = await fetch('/chatbot_app/chat/', {
-        method: 'POST',
-        headers: {
-          'X-CSRFToken': getCSRFToken()
-        },
-        body: formData
-      });
-      const data = await response.json();
-      setTimeout(() => {
-        hideTypingIndicator();
-        appendMessage('Bot', data.reply);
-      }, 400);
-    } catch (err) {
-      console.error(err);
-      hideTypingIndicator();
-      appendMessage('Bot', '⚠️ Something went wrong.');
-    }
-  });
+
+    const response = await fetch('/chatbot_app/chat/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCSRFToken()
+      },
+      body: JSON.stringify({
+        message: "Load this thesis file.",
+        gdrive_url: url
+      })
+    });
+
+    const data = await response.json();
+    hideTypingIndicator();
+    appendMessage('Bot', data.reply);
+  }
+});
+
+
   </script>
 {% endblock %}

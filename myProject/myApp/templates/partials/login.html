@@ -5,7 +5,25 @@
 
 {% block content %}
 {% include "partials/header.html" %}
+<style>
+  .input-group {
+    position: relative;
+  }
 
+  .toggle-password {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    cursor: pointer;
+    color: #888;
+    font-size: 18px;
+  }
+
+  .toggle-password:hover {
+    color: #025450;
+  }
+</style>
 <!-- 🔐 Login Box -->
 <div class="body_container">
   <div class="header_body_container">
@@ -24,7 +42,10 @@
     <form method="POST">
       {% csrf_token %}
       <input type="text" name="username" placeholder="Username" required>
-      <input type="password" name="password" placeholder="Password" required>
+      <div class="input-group">
+        <input type="password" name="password" id="password-input" placeholder="Password" required>
+        <i class="fa fa-eye toggle-password" toggle="#password-input"></i>
+      </div>
       <button type="submit">Sign In</button>
     </form>
 
@@ -34,5 +55,17 @@
     </div>
   </div>
 </div>
+
+<script>
+  document.querySelectorAll('.toggle-password').forEach(function (icon) {
+    icon.addEventListener('click', function () {
+      const input = document.querySelector(this.getAttribute('toggle'));
+      const isPassword = input.getAttribute('type') === 'password';
+      input.setAttribute('type', isPassword ? 'text' : 'password');
+      this.classList.toggle('fa-eye');
+      this.classList.toggle('fa-eye-slash');
+    });
+  });
+</script>
 
 {% endblock %}

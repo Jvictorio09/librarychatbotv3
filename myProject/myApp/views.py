@@ -12,15 +12,18 @@ def chat_page(request):
 
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
-import json
+from django.utils.safestring import mark_safe
+import os, tempfile, json
 
 from myApp.scripts.semantic_search import answer_query
 
-# ⚠️ In-memory session chat memory (temporary; swap to Redis/DB for prod)
+# In-memory chat store (swap to Redis/db for prod use)
 chat_memory = {}
-import json, os, tempfile
-from django.http import JsonResponse
+
 from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
+from django.utils.safestring import mark_safe
+import json, os, tempfile
 
 from myApp.scripts.semantic_search import answer_query
 
@@ -36,24 +39,27 @@ def chat_api(request):
             uploaded_file_path = None
             uploaded_file = None
             current_file_name = None
+            file_scanned = False  # 🔍 Track if a thesis was lazily scanned from GDrive
+            gdrive_url = None
 
             # 📦 Handle JSON vs multipart/form-data
             if request.content_type.startswith('application/json'):
                 data = json.loads(request.body)
                 message = data.get('message', '').strip()
+                gdrive_url = data.get('gdrive_url', '').strip()
             else:
                 message = request.POST.get('message', '').strip()
+                gdrive_url = request.POST.get('gdrive_url', '').strip()
                 uploaded_file = request.FILES.get('file')
+
                 if uploaded_file:
                     current_file_name = uploaded_file.name
-
-                    # Save file temporarily
                     with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(current_file_name)[1]) as tmp_file:
                         for chunk in uploaded_file.chunks():
                             tmp_file.write(chunk)
                         uploaded_file_path = tmp_file.name
 
-                    # Try to read text content if not PDF
+                    # Try to read text content if not a PDF
                     if not current_file_name.lower().endswith('.pdf'):
                         try:
                             uploaded_text = open(uploaded_file_path, 'r', encoding='utf-8', errors='ignore').read()
@@ -61,44 +67,44 @@ def chat_api(request):
                             print(f"⚠️ Could not read uploaded file: {e}")
                             uploaded_text = None
 
-            # 🧠 Handle user session
+            # 🧠 Handle session memory
             session_id = request.session.session_key or request.COOKIES.get('sessionid') or 'default'
-
             if session_id not in chat_memory:
                 chat_memory[session_id] = []
 
-            # 🧽 Reset memory if file changes (prevent ghost memory)
+            # 🧽 Reset memory if a new file is uploaded
             last_file_name = request.session.get('last_uploaded_filename')
             if current_file_name and current_file_name != last_file_name:
-                chat_memory[session_id] = []  # Clear old memory
+                chat_memory[session_id] = []
                 print(f"🧹 Chat memory reset for session '{session_id}' due to new file: {current_file_name}")
                 request.session['last_uploaded_filename'] = current_file_name
 
-            # 🧠 Call AI logic
-            reply, updated_history = answer_query(
+            # 🧠 Ask KaAI
+            reply, updated_history, file_scanned = answer_query(
                 query=message or "[User uploaded a file]",
                 session_history=chat_memory[session_id],
                 uploaded_text=uploaded_text,
-                uploaded_file_path=uploaded_file_path
+                uploaded_file_path=uploaded_file_path,
+                gdrive_url=gdrive_url
             )
 
-            # 💾 Update in-memory store
+            # 💾 Store updated memory
             chat_memory[session_id] = updated_history
 
-            # 🧼 Delete temp file
+            # 🧼 Clean up temp file
             if uploaded_file_path and os.path.exists(uploaded_file_path):
                 os.remove(uploaded_file_path)
 
-            from django.utils.safestring import mark_safe
-            return JsonResponse({'reply': mark_safe(reply)})
-
+            return JsonResponse({
+                'reply': mark_safe(reply),
+                'file_scanned': file_scanned
+            })
 
         except Exception as e:
             print(f"❌ Chat API Error: {e}")
             return JsonResponse({'reply': '⚠️ Something went wrong. Please try again.'}, status=500)
 
     return JsonResponse({'error': 'Only POST requests are allowed.'}, status=405)
-
 
 from django.contrib.auth.models import User
 from django.contrib.auth import login

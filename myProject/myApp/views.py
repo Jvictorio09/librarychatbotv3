@@ -1031,12 +1031,16 @@ from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from googleapiclient.http import MediaIoBaseDownload
 
-# Google Drive API setup
-SERVICE_ACCOUNT_FILE = "credentials/gdrive_service.json"
+import os
+from google.oauth2 import service_account
+
+SERVICE_ACCOUNT_FILE = os.getenv("GDRIVE_SERVICE_JSON")
 SCOPES = ["https://www.googleapis.com/auth/drive"]
+
 credentials = service_account.Credentials.from_service_account_file(
     SERVICE_ACCOUNT_FILE, scopes=SCOPES
 )
+
 drive_service = build("drive", "v3", credentials=credentials)
 
 # Extract file ID from GDrive viewer URL

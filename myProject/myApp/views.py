@@ -18,9 +18,12 @@ from myApp.scripts.vector_cache import (
 # 🧠 Simple in-memory chat session (for dev/demo)
 chat_memory = {}
 
-# 🎨 Render the chatbot page
+from django.contrib.auth.decorators import login_required
+
+@login_required
 def chat_page(request):
-    return render(request, "chatbot_app/chat.html")
+    return render(request, 'chatbot_app/chat.html')
+
 
 @csrf_exempt
 def chat_api(request):
@@ -135,22 +138,26 @@ def signup_view(request):
 
 
 
-# app_name/views.py
 from django.contrib.auth import authenticate, login
 from django.shortcuts import render, redirect
 
 def signin_view(request):
+    # ✅ Prevent access if already logged in
+    if request.user.is_authenticated:
+        return redirect('chat_page')  # or any page for signed-in users
+
     if request.method == 'POST':
         username = request.POST['username']
         password = request.POST['password']
         user = authenticate(request, username=username, password=password)
         if user is not None:
             login(request, user)
-            return redirect('chat_page')  # Or any page you want to land on
+            return redirect('chat_page')  # or wherever you want
         else:
             return render(request, 'partials/login.html', {
                 'error': 'Invalid username or password.'
             })
+
     return render(request, 'partials/login.html')
 
 
@@ -1582,20 +1589,40 @@ import fitz  # PyMuPDF
 import requests
 
 def download_pdf_to_temp(gdrive_url):
-    """Download the PDF from Google Drive link into a temp file and return its path."""
+    """Download a real PDF from Google Drive and save to temp file."""
     try:
-        response = requests.get(gdrive_url)
-        if response.status_code == 200:
+        # 🧠 Handle Google Drive share links
+        if "drive.google.com" in gdrive_url:
+            file_id = None
+            if "/file/d/" in gdrive_url:
+                file_id = gdrive_url.split("/file/d/")[1].split("/")[0]
+            elif "id=" in gdrive_url:
+                file_id = gdrive_url.split("id=")[1]
+
+            if not file_id:
+                print("[KaAI DEBUG] Could not extract file ID from Google Drive URL.")
+                return None
+
+            # Direct download URL for Drive file
+            download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+        else:
+            download_url = gdrive_url
+
+        response = requests.get(download_url)
+
+        if response.status_code == 200 and response.content.startswith(b"%PDF"):
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
             temp_file.write(response.content)
             temp_file.flush()
             return temp_file.name
         else:
-            print(f"[KaAI DEBUG] Failed to download PDF: {response.status_code}")
+            print(f"[KaAI DEBUG] Invalid PDF content. Status: {response.status_code}")
             return None
+
     except Exception as e:
         print(f"[KaAI ERROR] Exception in download_pdf_to_temp: {e}")
         return None
+
 
 def extract_text_from_pdf(pdf_path):
     """Extract plain text from the entire PDF using PyMuPDF."""

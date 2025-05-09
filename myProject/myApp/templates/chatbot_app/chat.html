@@ -346,6 +346,10 @@
   white-space: pre-wrap;
 }
 
+#file-name-preview {
+  display: none; /* 🔒 Hidden until file is selected */
+}
+
 </style>
 {% include "partials/logged_in_header.html" %}
 <div class="chat-wrapper">
@@ -523,14 +527,14 @@ chatForm.addEventListener('submit', async (e) => {
   const userMessage = chatInput.value.trim();
   if (!userMessage) return;
 
-  const fileNamePreview = document.getElementById('file-name-preview');
-  const attachedFileName = fileNamePreview.textContent;
+  const fileNameText = document.getElementById("file-name-text").textContent.trim();
+let fullUserMessageHTML = '';
 
-  let fullUserMessageHTML = '';
-  if (attachedFileName && attachedFileName !== '📄 No file uploaded yet') {
-    fullUserMessageHTML += `<div class="file-bubble">📎 ${attachedFileName}</div>`;
-  }
+if (fileNameText !== '') {
+  fullUserMessageHTML += `<div class="file-bubble">📎 ${fileNameText}</div>`;
+}
   fullUserMessageHTML += `<div class="message-text">${userMessage}</div>`;
+
 
   appendMessage('You', fullUserMessageHTML);
   chatInput.value = '';
@@ -640,7 +644,12 @@ chatBox.addEventListener('click', async (e) => {
 });
 document.getElementById("chat-file").addEventListener("change", function () {
   const file = this.files[0];
-  if (!file) return;
+
+  if (!file) {
+    document.getElementById("file-name-text").textContent = "";
+    document.getElementById("file-name-preview").style.display = "none";
+    return;
+  }
 
   const formData = new FormData();
   formData.append("file", file);
@@ -651,22 +660,61 @@ document.getElementById("chat-file").addEventListener("change", function () {
   })
     .then(res => res.json())
     .then(data => {
-      if (data.status === "ok") {
-        document.getElementById("file-name-text").textContent = `📄 ${data.filename}`;
+      if (data.status === "ok" && data.filename) {
+        document.getElementById("file-name-text").textContent = data.filename;
         document.getElementById("file-name-preview").style.display = "flex";
         alert("✅ File uploaded. You can now ask about its content.");
       } else {
         alert("❌ Upload failed.");
+        document.getElementById("chat-file").value = "";
         document.getElementById("file-name-text").textContent = "";
         document.getElementById("file-name-preview").style.display = "none";
       }
+    })
+    .catch(error => {
+      console.error("Upload error:", error);
+      alert("⚠️ Something went wrong during upload.");
+      document.getElementById("chat-file").value = "";
+      document.getElementById("file-name-text").textContent = "";
+      document.getElementById("file-name-preview").style.display = "none";
     });
 });
+
 document.getElementById("remove-file-btn").addEventListener("click", () => {
   document.getElementById("chat-file").value = "";
   document.getElementById("file-name-text").textContent = "";
   document.getElementById("file-name-preview").style.display = "none";
 });
+
+document.addEventListener("click", function (e) {
+  if (e.target.classList.contains("quick-followup")) {
+    const title = e.target.dataset.title;
+    const thesisId = e.target.dataset.id;
+
+    fetch("/kaai-thesis-lookup/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: `Tell me more about "${title}"`,
+        trigger_pdf_extraction: true,
+        extraction_id: thesisId
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.answer) {
+        appendMessage('Bot', data.answer);
+      } else {
+        appendMessage('Bot', "⚠️ I couldn't fetch more details right now.");
+      }
+    })
+    .catch(error => {
+      console.error("Follow-up error:", error);
+      appendMessage('Bot', "⚠️ Something went wrong while fetching thesis data.");
+    });
+  }
+});
+
 
 
   </script>

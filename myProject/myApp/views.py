@@ -1043,6 +1043,8 @@ def basic_ai_view(request):
     except Exception as e:
         return JsonResponse({"error": f"OpenAI error: {e}"}, status=500)
 '''
+
+
 import json
 import re
 from openai import OpenAI
@@ -1267,6 +1269,35 @@ def kaai_thesis_lookup(request):
     keywords = classification.get("keywords")
     subtype = classification.get("subtype")
     keyword_matches = []
+
+    # Check if there's a user-uploaded file
+    user_uploaded_text = request.session.get("uploaded_file_text")
+    uploaded_filename = request.session.get("uploaded_filename")
+    if user_uploaded_text:
+        prompt = f"""
+    You are an academic assistant helping the user understand their uploaded document.
+
+    Filename: {uploaded_filename}
+
+    Full content:
+    {user_uploaded_text}
+
+    User's question: "{message}"
+    """
+        ai = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant analyzing the user's uploaded document."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.4,
+            max_tokens=850
+        )
+        return JsonResponse({
+            "answer": ai.choices[0].message.content.strip(),
+            "source": "user_upload_analysis"
+        })
+
 
     if intent == "topic_search" and keywords:
         keyword_matches = [t for t in thesis_qs if any(kw in t.title.lower() for kw in keywords)]
@@ -1577,3 +1608,38 @@ def extract_text_from_pdf(pdf_path):
     except Exception as e:
         print(f"[KaAI ERROR] Failed to extract text: {e}")
         return ""
+
+
+from django.views.decorators.csrf import csrf_exempt
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from django.utils.text import get_valid_filename
+
+@csrf_exempt
+def kaai_user_upload(request):
+    if request.method == "POST" and request.FILES.get("file"):
+        uploaded_file = request.FILES["file"]
+        filename = get_valid_filename(uploaded_file.name)
+
+        # Save temporarily
+        temp_path = default_storage.save(f"temp_uploads/{filename}", ContentFile(uploaded_file.read()))
+        full_path = os.path.join(default_storage.location, temp_path)
+
+        # Extract text
+        if filename.endswith(".pdf"):
+            text = extract_text_from_pdf(full_path)
+        elif filename.endswith(".txt"):
+            text = open(full_path, "r", encoding="utf-8").read()
+        elif filename.endswith(".docx"):
+            from docx import Document
+            doc = Document(full_path)
+            text = "\n".join([para.text for para in doc.paragraphs])
+        else:
+            return JsonResponse({"error": "Unsupported file format"}, status=400)
+
+        # Store in session
+        request.session["uploaded_file_text"] = text
+        request.session["uploaded_filename"] = filename
+        return JsonResponse({"status": "ok", "filename": filename})
+    
+    return JsonResponse({"error": "No file received"}, status=400)

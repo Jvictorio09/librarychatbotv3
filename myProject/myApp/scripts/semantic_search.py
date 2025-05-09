@@ -158,3 +158,45 @@ def answer_query(query, session_history, uploaded_text=None, uploaded_file_path=
     except Exception as e:
         print(f"❌ Error in answer_query: {e}")
         return "⚠️ Something went wrong. Please try again.", session_history, False
+
+
+
+import json
+import os
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from dotenv import load_dotenv
+from openai import OpenAI
+
+# 🔐 Load OpenAI key from .env
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+@csrf_exempt
+def basic_ai_view(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed."}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        message = data.get("message", "").strip()
+    except Exception as e:
+        return JsonResponse({"error": f"Invalid JSON: {e}"}, status=400)
+
+    if not message:
+        return JsonResponse({"error": "Message is required."}, status=400)
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a helpful academic assistant."},
+                {"role": "user", "content": message}
+            ],
+            temperature=0.5,
+            max_tokens=600
+        )
+        answer = response.choices[0].message.content.strip()
+        return JsonResponse({"answer": answer})
+    except Exception as e:
+        return JsonResponse({"error": f"OpenAI error: {e}"}, status=500)

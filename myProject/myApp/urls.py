@@ -27,24 +27,26 @@ urlpatterns = [
 
     path('create-librarian/', views.create_librarian_view, name='create_librarian'),
     path('delete-theses/', views.delete_theses, name='delete_theses'),
-    path("edit-thesis/", views.edit_thesis, name="edit_thesis"),
-    path("search-theses/", views.search_theses, name="search_theses"),
+    path('edit-thesis/', views.edit_thesis, name='edit_thesis'),
+    path('search-theses/', views.search_theses, name='search_theses'),
 
     path('librarian/users/', views.librarian_users, name='librarian_users'),
     path('librarian/revoke/<int:user_id>/', views.revoke_user, name='revoke_user'),
     path('librarian/users/', views.librarian_users, name='librarian_users'),
     path('librarian/revoke/<int:user_id>/', views.revoke_user, name='revoke_user'),
 
-    path("ajax/change-password/", views.ajax_change_password, name="ajax_change_password"),
+    path('ajax/change-password/', views.ajax_change_password, name='ajax_change_password'),
 
-    path("bulk-upload/", views.bulk_upload_page, name="bulk_upload"),
-    path("bulk-upload/single/", views.bulk_upload_single, name="bulk_upload_single"),
+    path('bulk-upload/', views.bulk_upload_page, name='bulk_upload'),
+    path('bulk-upload/single/', views.bulk_upload_single, name='bulk_upload_single'),
     path('api/check-thesis-status/<int:thesis_id>/', views.check_thesis_status, name='check_thesis_status'),
 
-    path("ai-thesis-query/", views.ai_thesis_query_view, name="ai_thesis_query"),
-    #path("basic-ai/", views.basic_ai_view, name="basic_ai"),
+    path('ai-thesis-query/', views.ai_thesis_query_view, name='ai_thesis_query'),
+    #path('basic-ai/', views.basic_ai_view, name='basic_ai'),
 
-    path("kaai-thesis/", views.kaai_thesis_lookup, name="kaai_thesis"),
+    path('kaai-thesis/', views.kaai_thesis_lookup, name='kaai_thesis'),
 
-    path("kaai-user-upload/", views.kaai_user_upload, name="kaai_user_upload"),
+    path('kaai-user-upload/', views.kaai_user_upload, name='kaai_user_upload'),
+
+    path('student/library/', views.student_thesis_library, name='student_thesis_library'),
 ]

@@ -18,10 +18,14 @@
       
         <div class="dropdown-content">
           {% if request.user.is_staff %}
-            <a href="/librarian/">
-              <i class="fas fa-book"></i> Librarian Dashboard
-            </a>
-          {% endif %}
+          <a href="/librarian/">
+            <i class="fas fa-book"></i> Librarian Dashboard
+          </a>
+        {% else %}
+          <a href="{% url 'student_thesis_library' %}">
+            <i class="fas fa-book-reader"></i> Student Library
+          </a>
+        {% endif %}
       
           <button type="button" onclick="openPasswordModal()">
             <i class="fas fa-key"></i> Change Password

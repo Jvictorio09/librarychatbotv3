@@ -25,6 +25,33 @@ def chat_page(request):
     return render(request, 'chatbot_app/chat.html')
 
 
+from django.core.paginator import Paginator
+from django.shortcuts import render
+from myApp.models import Thesis, Program
+
+@login_required
+def student_thesis_library(request):
+    program_id = request.GET.get('program')
+    search_query = request.GET.get('search', '')
+    theses = Thesis.objects.all().order_by('-uploaded_at')
+
+    if program_id:
+        theses = theses.filter(program_id=program_id)
+
+    if search_query:
+        theses = theses.filter(title__icontains=search_query) | theses.filter(authors__icontains=search_query)
+
+    paginator = Paginator(theses, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'chatbot_app/student_library.html', {
+        'page_obj': page_obj,
+        'selected_program': Program.objects.filter(id=program_id).first() if program_id else None,
+        'programs': Program.objects.all()
+    })
+
+
 @csrf_exempt
 def chat_api(request):
     if request.method != 'POST':

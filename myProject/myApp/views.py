@@ -505,37 +505,23 @@ def search_theses(request):
     return JsonResponse(list(results), safe=False)
 
 
-from django.contrib.auth.models import User
 from django.contrib.auth.decorators import user_passes_test
-
-@user_passes_test(lambda u: u.is_staff)
-def librarian_users(request):
-    users = User.objects.all().order_by('username')
-    return render(request, 'librarian_users.html', {'users': users})
+from django.contrib.auth.models import User
+from django.shortcuts import get_object_or_404, redirect, render
 
 @user_passes_test(lambda u: u.is_staff)
 def revoke_user(request, user_id):
     if request.method == 'POST':
-        user = User.objects.get(pk=user_id)
-        user.is_active = False
-        user.save()
+        user = get_object_or_404(User, pk=user_id)
+        if not user.is_superuser:
+            user.delete()  # 💥 Completely removes the user from the database
     return redirect('librarian_users')
 
-from django.contrib.auth.models import User
-from django.contrib.auth.decorators import user_passes_test
 
 @user_passes_test(lambda u: u.is_staff)
 def librarian_users(request):
-    users = User.objects.all().order_by('username')
+    users = User.objects.all().order_by('username')  # 🧼 Make sure you're not using cached `users`
     return render(request, 'librarian/librarian_users.html', {'users': users})
-
-@user_passes_test(lambda u: u.is_staff)
-def revoke_user(request, user_id):
-    if request.method == 'POST':
-        user = User.objects.get(pk=user_id)
-        user.is_active = False
-        user.save()
-    return redirect('librarian_users')
 
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth import update_session_auth_hash

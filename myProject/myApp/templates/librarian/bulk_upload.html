@@ -4,6 +4,29 @@
 {% block title %}Bulk Upload Theses{% endblock %}
 
 {% block content %}
+<!-- 🔄 Preloader Overlay -->
+<div id="preloader-overlay" style="
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  font-family: sans-serif;
+">
+  <div style="font-size: 1.2rem; color: #025450;">⏳ Processing your theses...</div>
+  <div class="loader" style="margin-top: 20px; border: 6px solid #ccc; border-top: 6px solid #025450; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;"></div>
+</div>
+
+<style>
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+</style>
+
 <style>
   .upload-container {
     max-width: 700px;
@@ -119,26 +142,50 @@
     <button type="submit" class="upload-btn">Upload Files</button>
   </form>
 </div>
+<button id="retry-all-btn" class="upload-btn" style="background:#999; display:none; margin-top:15px;">Retry All Failed</button>
+
 
 <div class="status-container">
   <div id="progress-summary"></div>
   <ul id="status-list"></ul>
 </div>
+<!-- SweetAlert2 Library -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script>
+  let failedFilesList = []; 
+
+  function getCSRFToken() {
+    return document.querySelector('[name=csrfmiddlewaretoken]').value;
+  }
+
   document.getElementById('upload-form').addEventListener('submit', function(e) {
     e.preventDefault();
 
     const files = document.getElementById('documents').files;
     const programId = document.getElementById('program_id').value;
-    if (!files.length || !programId) return alert("Please select a program and at least one PDF file.");
+    const uploadBtn = document.querySelector('.upload-btn');
+    if (!files.length || !programId) {
+      Swal.fire('Missing Information', 'Please select a program and at least one PDF file.', 'warning');
+      return;
+    }
 
     const statusList = document.getElementById('status-list');
     const summary = document.getElementById('progress-summary');
     statusList.innerHTML = '';
-    summary.textContent = `Uploading 0 of ${files.length}...`;
+    summary.innerHTML = `
+      <div style="width:100%; background:#eee; border-radius:10px; overflow:hidden;">
+        <div id="progress-bar" style="width:0%; background:#025450; height:20px; transition:width 0.3s;"></div>
+      </div>
+      <p id="upload-progress-text" style="margin-top:10px;">Uploading 0 of ${files.length}...</p>
+    `;
+
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = "Uploading...";
 
     let uploadedCount = 0;
+    let failedCount = 0;
+    let processingTheses = [];
 
     const uploadSingleFile = (file, listItem) => {
       const formData = new FormData();
@@ -146,13 +193,13 @@
       formData.append("program_id", programId);
 
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);  // ⏱️ Timeout after 15s
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
       fetch("{% url 'bulk_upload_single' %}", {
         method: "POST",
         body: formData,
         headers: {
-          "X-CSRFToken": "{{ csrf_token }}"
+          "X-CSRFToken": getCSRFToken()
         },
         signal: controller.signal
       })
@@ -161,31 +208,107 @@
         clearTimeout(timeout);
         uploadedCount++;
         listItem.textContent = `${file.name} — ${data.status}`;
+
         if (data.success) {
           listItem.classList.add('success');
+          const thesisId = data.thesis_id;  // ⬅️ We'll return thesis_id too later
+          if (thesisId) {
+            processingTheses.push({ id: thesisId, element: listItem });
+          }
         } else {
           listItem.classList.add('error');
-          const retryBtn = document.createElement('button');
-          retryBtn.textContent = '🔁 Retry';
-          retryBtn.style.marginLeft = 'auto';
-          retryBtn.onclick = () => uploadSingleFile(file, listItem);
-          listItem.appendChild(retryBtn);
+          failedCount++;
+          createRetryButton(file, listItem);
         }
-        summary.textContent = `Uploaded ${uploadedCount} of ${files.length}`;
+        updateProgress();
       })
       .catch(err => {
         clearTimeout(timeout);
         uploadedCount++;
+        failedCount++;
         listItem.classList.add('error');
         listItem.textContent = `${file.name} — ❌ Timeout or Upload Error`;
-        const retryBtn = document.createElement('button');
-        retryBtn.textContent = '🔁 Retry';
-        retryBtn.style.marginLeft = 'auto';
-        retryBtn.onclick = () => uploadSingleFile(file, listItem);
-        listItem.appendChild(retryBtn);
-        summary.textContent = `Uploaded ${uploadedCount} of ${files.length}`;
+        createRetryButton(file, listItem);
+        updateProgress();
       });
     };
+
+    const createRetryButton = (file, listItem) => {
+  failedFilesList.push({ file, element: listItem }); // ⬅️ Add to failed list
+
+  const retryBtn = document.createElement('button');
+  retryBtn.textContent = '🔁 Retry';
+  retryBtn.className = 'retry-btn';
+  retryBtn.onclick = () => {
+    uploadSingleFile(file, listItem);
+    retryBtn.remove(); // Remove retry button after retry
+    listItem.classList.remove('error');
+    listItem.textContent = `${file.name} — Retrying...`;
+    failedFilesList = failedFilesList.filter(f => f.file !== file); // Remove from failed list
+  };
+  listItem.appendChild(retryBtn);
+
+  // Show retry-all button if there are failed files
+  if (failedFilesList.length > 0) {
+    document.getElementById('retry-all-btn').style.display = 'inline-block';
+  }
+};
+
+
+    const updateProgress = () => {
+      const percent = Math.round((uploadedCount / files.length) * 100);
+      document.getElementById('progress-bar').style.width = percent + '%';
+      document.getElementById('upload-progress-text').textContent = `Uploaded ${uploadedCount} of ${files.length}`;
+
+      if (uploadedCount === files.length) {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = "Upload Files";
+
+        setTimeout(() => {
+          if (failedFilesList.length > 0) {
+            document.getElementById('retry-all-btn').style.display = 'inline-block';
+          }
+ else {
+            Swal.fire('⚠️ Upload Completed with Some Errors', `${failedCount} failed uploads.`, 'warning');
+          }
+          monitorProcessing();
+        }, 500);
+      }
+    };
+
+    const monitorProcessing = () => {
+  if (!processingTheses.length) return;
+
+  // 👀 Show overlay preloader while processing
+  document.getElementById("preloader-overlay").style.display = "flex";
+
+  const checkStatus = () => {
+    processingTheses.forEach((item, index) => {
+      fetch(`/api/check-thesis-status/${item.id}/`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'done') {
+            item.element.innerHTML += ' <span style="color:green;">✅ Done Processing!</span>';
+            processingTheses.splice(index, 1);
+          } else if (data.status === 'failed') {
+            item.element.innerHTML += ' <span style="color:red;">❌ Processing Failed</span>';
+            processingTheses.splice(index, 1);
+          }
+        });
+    });
+
+    if (processingTheses.length > 0) {
+      setTimeout(checkStatus, 5000); // Re-check every 5s
+    } else {
+      // ✅ Hide preloader when all done
+      document.getElementById("preloader-overlay").style.display = "none";
+      Swal.fire('🎯 All Files Processed!', 'You may now browse or search them!', 'success');
+    }
+  };
+
+  setTimeout(checkStatus, 5000);
+};
+
 
     Array.from(files).forEach(file => {
       const listItem = document.createElement('li');
@@ -194,7 +317,21 @@
       uploadSingleFile(file, listItem);
     });
   });
-</script>
 
-  
+  document.getElementById('retry-all-btn').addEventListener('click', () => {
+  if (!failedFilesList.length) return;
+
+  failedFilesList.forEach(({ file, element }) => {
+    element.textContent = `${file.name} — Retrying...`;
+    element.classList.remove('error');
+    uploadSingleFile(file, element);
+  });
+
+  // Clear list after retry
+  failedFilesList = [];
+  document.getElementById('retry-all-btn').style.display = 'none';
+});
+
+</script>
 {% endblock %}
+

@@ -26,8 +26,8 @@ creds = service_account.Credentials.from_service_account_file(
 service = build("drive", "v3", credentials=creds)
 
 
-def list_files_in_folder(folder_name):
-    """List and count files inside a Google Drive folder by name."""
+def delete_folder_and_contents(folder_name):
+    """Delete all files inside a Google Drive folder by name, then delete the folder itself."""
     # 📁 Find folder ID by name
     folder_query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
     folder_result = service.files().list(q=folder_query, spaces="drive", fields="files(id, name)").execute()
@@ -35,37 +35,38 @@ def list_files_in_folder(folder_name):
 
     if not folders:
         print(f"❌ Folder '{folder_name}' not found.")
-        return []
+        return
 
     folder_id = folders[0]['id']
-    print(f"\n📁 Folder: {folder_name} (ID: {folder_id})")
+    print(f"\n🗑️ Deleting contents of folder: {folder_name} (ID: {folder_id})")
 
-    # 📄 List files in the folder
+    # 📄 List and delete files in the folder
     file_query = f"'{folder_id}' in parents"
     files_result = service.files().list(
         q=file_query,
         spaces="drive",
-        fields="files(id, name, mimeType, createdTime)"
+        fields="files(id, name)"
     ).execute()
 
     files = files_result.get("files", [])
 
-    if not files:
-        print("📂 (Empty folder)")
-        return []
-
     for file in files:
-            file_id = file['id']
-            public_link = f"https://drive.google.com/file/d/{file_id}/view"
-            print(f"  📄 {file['name']} — {file['mimeType']} — Created: {file['createdTime']}")
-            print(f"     🔗 {public_link}")
-            print(f"  📄 {file['name']} — {file['mimeType']} — Created: {file['createdTime']}")
+        file_id = file['id']
+        file_name = file['name']
+        try:
+            service.files().delete(fileId=file_id).execute()
+            print(f"✅ Deleted file: {file_name}")
+        except Exception as e:
+            print(f"❌ Failed to delete file {file_name}: {e}")
 
-    print(f"📦 Total files in '{folder_name}': {len(files)}")
-    return files
+    # 🧨 Delete the folder itself
+    try:
+        service.files().delete(fileId=folder_id).execute()
+        print(f"✅ Deleted folder: {folder_name}")
+    except Exception as e:
+        print(f"❌ Failed to delete folder {folder_name}: {e}")
 
 
-# 🔍 Check and count important folders
-list_files_in_folder("ja_vector_store")
-list_files_in_folder("thesis_uploads")
-
+# 🚮 Clean up these folders
+delete_folder_and_contents("ja_vector_store")
+delete_folder_and_contents("thesis_uploads")

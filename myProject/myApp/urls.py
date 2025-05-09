@@ -7,6 +7,8 @@ from django.contrib.auth import views as view
 urlpatterns = [
     path('kaai', views.chat_page, name='chat_page'),
     path('chatbot_app/chat/', views.chat_api, name='chat_api'),
+
+
     path('upload-thesis/', views.upload_thesis_view, name='upload_thesis'),
     path('signup/', views.signup_view, name='signup'),
     path('', views.signin_view, name='login'),
@@ -37,4 +39,11 @@ urlpatterns = [
 
     path("bulk-upload/", views.bulk_upload_page, name="bulk_upload"),
     path("bulk-upload/single/", views.bulk_upload_single, name="bulk_upload_single"),
+    path('api/check-thesis-status/<int:thesis_id>/', views.check_thesis_status, name='check_thesis_status'),
+
+    path("ai-thesis-query/", views.ai_thesis_query_view, name="ai_thesis_query"),
+    #path("basic-ai/", views.basic_ai_view, name="basic_ai"),
+
+    path("kaai-thesis/", views.kaai_thesis_lookup, name="kaai_thesis"),
+
 ]

@@ -1,110 +1,111 @@
-# myApp/views.py
+import os
 import json
+import tempfile
+from pathlib import Path
+
+from django.shortcuts import render
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
-from django.shortcuts import render
-from myApp.models import Thesis
+from django.utils.safestring import mark_safe
 
 from myApp.scripts.semantic_search import answer_query
+from myApp.scripts.vector_cache import (
+    load_drive_service,
+    get_latest_file_by_prefix,
+    download_drive_file
+)
 
+# 🧠 Simple in-memory chat session (for dev/demo)
+chat_memory = {}
+
+# 🎨 Render the chatbot page
 def chat_page(request):
     return render(request, "chatbot_app/chat.html")
 
-from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
-from django.utils.safestring import mark_safe
-import os, tempfile, json
-
-from myApp.scripts.semantic_search import answer_query
-
-# In-memory chat store (swap to Redis/db for prod use)
-chat_memory = {}
-
-from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
-from django.utils.safestring import mark_safe
-import json, os, tempfile
-
-from myApp.scripts.semantic_search import answer_query
-
-# ⚠️ In-memory chat store — best for dev/testing
-chat_memory = {}
-
 @csrf_exempt
 def chat_api(request):
-    if request.method == 'POST':
-        try:
-            message = None
-            uploaded_text = None
-            uploaded_file_path = None
-            uploaded_file = None
-            current_file_name = None
-            file_scanned = False  # 🔍 Track if a thesis was lazily scanned from GDrive
-            gdrive_url = None
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST requests are allowed.'}, status=405)
 
-            # 📦 Handle JSON vs multipart/form-data
-            if request.content_type.startswith('application/json'):
-                data = json.loads(request.body)
-                message = data.get('message', '').strip()
-                gdrive_url = data.get('gdrive_url', '').strip()
-            else:
-                message = request.POST.get('message', '').strip()
-                gdrive_url = request.POST.get('gdrive_url', '').strip()
-                uploaded_file = request.FILES.get('file')
+    try:
+        message = None
+        uploaded_text = None
+        uploaded_file_path = None
+        uploaded_file = None
+        current_file_name = None
+        gdrive_url = None
+        file_scanned = False
 
-                if uploaded_file:
-                    current_file_name = uploaded_file.name
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(current_file_name)[1]) as tmp_file:
-                        for chunk in uploaded_file.chunks():
-                            tmp_file.write(chunk)
-                        uploaded_file_path = tmp_file.name
+        # 📦 Handle JSON or multipart
+        if request.content_type.startswith('application/json'):
+            data = json.loads(request.body)
+            message = data.get('message', '').strip()
+            gdrive_url = data.get('gdrive_url', '').strip()
+        else:
+            message = request.POST.get('message', '').strip()
+            gdrive_url = request.POST.get('gdrive_url', '').strip()
+            uploaded_file = request.FILES.get('file')
 
-                    # Try to read text content if not a PDF
-                    if not current_file_name.lower().endswith('.pdf'):
-                        try:
-                            uploaded_text = open(uploaded_file_path, 'r', encoding='utf-8', errors='ignore').read()
-                        except Exception as e:
-                            print(f"⚠️ Could not read uploaded file: {e}")
-                            uploaded_text = None
+            if uploaded_file:
+                current_file_name = uploaded_file.name
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(current_file_name)[1]) as tmp_file:
+                    for chunk in uploaded_file.chunks():
+                        tmp_file.write(chunk)
+                    uploaded_file_path = tmp_file.name
 
-            # 🧠 Handle session memory
-            session_id = request.session.session_key or request.COOKIES.get('sessionid') or 'default'
-            if session_id not in chat_memory:
-                chat_memory[session_id] = []
+                if not current_file_name.lower().endswith('.pdf'):
+                    try:
+                        uploaded_text = open(uploaded_file_path, 'r', encoding='utf-8', errors='ignore').read()
+                    except Exception as e:
+                        print(f"⚠️ Could not read uploaded file: {e}")
+                        uploaded_text = None
 
-            # 🧽 Reset memory if a new file is uploaded
-            last_file_name = request.session.get('last_uploaded_filename')
-            if current_file_name and current_file_name != last_file_name:
-                chat_memory[session_id] = []
-                print(f"🧹 Chat memory reset for session '{session_id}' due to new file: {current_file_name}")
-                request.session['last_uploaded_filename'] = current_file_name
+        # 🧠 Manage session memory
+        session_id = request.session.session_key or request.COOKIES.get('sessionid') or 'default'
+        if session_id not in chat_memory:
+            chat_memory[session_id] = []
+            # ⏬ Refresh vector store from Drive
+            try:
+                service = load_drive_service()
+                faiss_id, _ = get_latest_file_by_prefix(service, "ja_vector_store", "thesis_index")
+                meta_id, _ = get_latest_file_by_prefix(service, "ja_vector_store", "metadata")
+                if faiss_id and meta_id:
+                    download_drive_file(f"https://drive.google.com/file/d/{faiss_id}/view", suffix=".faiss")
+                    download_drive_file(f"https://drive.google.com/file/d/{meta_id}/view", suffix=".json")
+                    print("✅ Vector store refreshed for session.")
+            except Exception as e:
+                print(f"❌ Failed to update vector store: {e}")
 
-            # 🧠 Ask KaAI
-            reply, updated_history, file_scanned = answer_query(
-                query=message or "[User uploaded a file]",
-                session_history=chat_memory[session_id],
-                uploaded_text=uploaded_text,
-                uploaded_file_path=uploaded_file_path,
-                gdrive_url=gdrive_url
-            )
+        # 🔁 Reset session if file changes
+        last_file_name = request.session.get('last_uploaded_filename')
+        if current_file_name and current_file_name != last_file_name:
+            chat_memory[session_id] = []
+            request.session['last_uploaded_filename'] = current_file_name
+            print(f"🔄 Memory cleared due to new file: {current_file_name}")
 
-            # 💾 Store updated memory
-            chat_memory[session_id] = updated_history
+        # 💬 Ask KaAI
+        reply, updated_history, file_scanned = answer_query(
+            query=message or "[User uploaded a file]",
+            session_history=chat_memory[session_id],
+            uploaded_text=uploaded_text,
+            uploaded_file_path=uploaded_file_path,
+            gdrive_url=gdrive_url
+        )
 
-            # 🧼 Clean up temp file
-            if uploaded_file_path and os.path.exists(uploaded_file_path):
-                os.remove(uploaded_file_path)
+        chat_memory[session_id] = updated_history
 
-            return JsonResponse({
-                'reply': mark_safe(reply),
-                'file_scanned': file_scanned
-            })
+        # 🧼 Clean up temp
+        if uploaded_file_path and os.path.exists(uploaded_file_path):
+            os.remove(uploaded_file_path)
 
-        except Exception as e:
-            print(f"❌ Chat API Error: {e}")
-            return JsonResponse({'reply': '⚠️ Something went wrong. Please try again.'}, status=500)
+        return JsonResponse({
+            'reply': mark_safe(reply),
+            'file_scanned': file_scanned
+        })
 
-    return JsonResponse({'error': 'Only POST requests are allowed.'}, status=405)
+    except Exception as e:
+        print(f"❌ Chat API Error: {e}")
+        return JsonResponse({'reply': '⚠️ Something went wrong. Please try again.'}, status=500)
 
 from django.contrib.auth.models import User
 from django.contrib.auth import login
@@ -608,60 +609,109 @@ def upload_thesis_view(request):
             return HttpResponse(f"❌ Error: {e}", status=500)
 
     return redirect("librarian_home")
-import re
+
+
 import os
+import json
 import tempfile
-import traceback
 import datetime
+import traceback
+import re
+
 from django.http import JsonResponse
-from django.core.files.base import ContentFile
 from .models import Program, Thesis
 from .scripts.extract_text import extract_text_from_pdf
 from .scripts.vector_cache import upload_to_gdrive_folder
 from .tasks import process_thesis_task
+from openai import OpenAI
 
-# 🧠 Improved metadata extraction
-def extract_metadata(text, filename="Untitled.pdf"):
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    # YEAR from filename or first 20 lines
-    year_match = re.search(r"20\d{2}", filename)
-    if not year_match:
-        for line in lines[:20]:
-            match = re.search(r"\b(20\d{2})\b", line)
-            if match:
-                year_match = match
-                break
-    year = int(year_match.group()) if year_match else datetime.datetime.now().year
+# 🔍 Extract year from filename (e.g. "BSIT_Project_2022_Final.pdf")
+import re
+import json
+import datetime
 
-    # TITLE: First long-enough line
-    title = next((line for line in lines if len(line.split()) > 6), "Untitled").title()[:255]
+# 🎯 Extract year from filename
+def extract_year_from_filename(filename):
+    match = re.search(r"(20\d{2})", filename)
+    if match:
+        return int(match.group(1))
+    return datetime.datetime.now().year
 
-    # AUTHORS: Look for name/email patterns
-    authors = "Unknown"
-    for line in lines:
-        if '@' in line or re.search(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b', line):
-            authors = line.title()
-            break
-    authors = authors[:255]
+# 🧠 GPT-powered metadata extractor (no year)
+def smart_metadata_extraction(text_excerpt, fallback_filename="Untitled.pdf"):
+    prompt = f"""
+You are an assistant that extracts metadata from academic research papers.
 
-    # ABSTRACT: Capture lines after 'abstract'
-    abstract_lines = []
-    abstract_started = False
-    for line in lines:
-        if 'abstract' in line.lower():
-            abstract_started = True
-            continue
-        if abstract_started:
-            if line.lower().startswith("keywords") or len(line) < 5:
-                break
-            abstract_lines.append(line)
-    abstract = " ".join(abstract_lines).strip()[:5000] or "No abstract found."
+Given the following text excerpt from the first page of a PDF, extract:
+- Title
+- Authors
+- Abstract
 
-    return title, authors, year, abstract
+Respond ONLY in raw JSON like this:
+
+{{
+    "title": "...",
+    "authors": "...",
+    "abstract": "..."
+}}
+
+Text:
+\"\"\"
+{text_excerpt}
+\"\"\"
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You extract metadata from academic research PDFs."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            max_tokens=500
+        )
+
+        content = response.choices[0].message.content.strip()
+
+        # 🧼 Remove markdown formatting if present
+        if content.startswith("```json"):
+            content = content.replace("```json", "").replace("```", "").strip()
+        elif content.startswith("```"):
+            content = content.replace("```", "").strip()
+
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as err:
+            print(f"⚠️ JSON parse error: {err} — attempting regex fallback.")
+            parsed = {}
+            for field in ["title", "authors", "abstract"]:
+                match = re.search(rf'"{field}"\s*:\s*"([^"]+)"', content)
+                if match:
+                    parsed[field] = match.group(1)
+
+        # 🛠️ Final fallback values
+        title = parsed.get("title") or fallback_filename.replace(".pdf", "").replace("_", " ").strip().title()
+        authors = parsed.get("authors", "Unknown Authors")
+        if isinstance(authors, list):
+            authors = ", ".join(authors)
+        abstract = parsed.get("abstract", "No abstract found.")
+
+        return {
+            "title": title[:255],
+            "authors": authors[:255],
+            "abstract": abstract[:5000],
+            "year": extract_year_from_filename(fallback_filename)
+        }
+
+    except Exception as e:
+        print("❌ OpenAI extraction error:", e)
+        raise
 
 
-# 🧠 Per-file bulk upload handler
+
 def bulk_upload_single(request):
     if request.method != 'POST' or not request.FILES.get("documents"):
         return JsonResponse({"status": "❌ Invalid Request", "success": False}, status=400)
@@ -676,48 +726,645 @@ def bulk_upload_single(request):
 
         program = Program.objects.get(id=program_id)
 
-        # Write to temp file for fitz reading
+        thesis = Thesis.objects.create(
+            title="Processing...",
+            authors="Processing...",
+            abstract="Processing...",
+            year=2000,
+            program=program,
+            document=uploaded_file.name,
+            gdrive_url="pending",
+            embedding_status="pending"
+        )
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
             tmp_pdf.write(file_data)
             temp_pdf_path = tmp_pdf.name
 
-        # Extract metadata
-        try:
-            text = extract_text_from_pdf(temp_pdf_path)
-            title, authors, year, abstract = extract_metadata(text, uploaded_file.name)
-        except Exception:
-            print("❌ Error extracting text from PDF:", traceback.format_exc())
-            os.remove(temp_pdf_path)
-            return JsonResponse({"status": f"❌ Failed to extract text: {uploaded_file.name}", "success": False}, status=500)
+        # ✅ Queue async metadata extraction + drive upload + embedding
+        prepare_thesis_upload_task.delay(thesis.id, temp_pdf_path)
 
-        # Upload to Google Drive
-        try:
-            gdrive_url = upload_to_gdrive_folder(file_data, uploaded_file.name, program.name)
-        except Exception:
-            os.remove(temp_pdf_path)
-            print("❌ Error uploading to Google Drive:", traceback.format_exc())
-            return JsonResponse({"status": f"❌ Drive upload failed: {uploaded_file.name}", "success": False}, status=500)
-
-        # Save to DB
-        thesis = Thesis.objects.create(
-            title=title,
-            authors=authors,
-            abstract=abstract,
-            year=year,
-            program=program,
-            document=uploaded_file.name,
-            gdrive_url=gdrive_url
-        )
-
-        # Trigger async Celery task
-        process_thesis_task.delay(thesis.id)
-
-        os.remove(temp_pdf_path)
-
-        return JsonResponse({"status": f"✅ Queued: {uploaded_file.name}", "success": True})
+        return JsonResponse({
+            "status": f"✅ Queued for processing: {uploaded_file.name}",
+            "success": True,
+            "thesis_id": thesis.id
+        })
 
     except Program.DoesNotExist:
         return JsonResponse({"status": "❌ Program not found", "success": False}, status=404)
     except Exception:
         print("❌ Unexpected error:", traceback.format_exc())
-        return JsonResponse({"status": f"❌ Unexpected error: {uploaded_file.name}", "success": False}, status=500)
+        return JsonResponse({
+            "status": f"❌ Unexpected error during upload: {uploaded_file.name}",
+            "success": False
+        }, status=500)
+
+
+from django.http import JsonResponse
+from .models import Thesis
+
+def check_thesis_status(request, thesis_id):
+    try:
+        thesis = Thesis.objects.get(id=thesis_id)
+        return JsonResponse({"status": thesis.embedding_status})
+    except Thesis.DoesNotExist:
+        return JsonResponse({"status": "not_found"}, status=404)
+
+
+
+import os
+import io
+import json
+import time
+import faiss
+import tempfile
+import numpy as np
+from pathlib import Path
+from datetime import datetime
+from django.http import JsonResponse
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+
+TMP_DIR = Path(tempfile.gettempdir())
+SERVICE_ACCOUNT_FILE = "credentials/gdrive_service.json"
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+drive_service = build("drive", "v3", credentials=credentials)
+
+VECTOR_FOLDER_NAME = "ja_vector_store"
+FILES = {
+    "metadata": "metadata.json",
+    "index": "thesis_index.faiss",
+}
+
+
+def get_or_create_drive_folder(name):
+    query = f"name='{name}' and mimeType='application/vnd.google-apps.folder'"
+    results = drive_service.files().list(q=query, spaces="drive", fields="files(id)").execute().get("files", [])
+    return results[0]["id"] if results else None
+
+
+def find_drive_file_id(filename, parent_id):
+    query = f"name='{filename}' and '{parent_id}' in parents and trashed=false"
+    response = drive_service.files().list(q=query, spaces="drive", fields="files(id, modifiedTime)").execute()
+    return response.get("files", [None])[0]
+
+
+def download_file_from_drive(file_id, local_path):
+    request = drive_service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    fh.seek(0)
+    with open(local_path, "wb") as f:
+        f.write(fh.read())
+    return local_path
+
+
+def check_and_download_latest_files():
+    parent_id = get_or_create_drive_folder(VECTOR_FOLDER_NAME)
+    updated = False
+
+    for key, filename in FILES.items():
+        drive_file = find_drive_file_id(filename, parent_id)
+        if not drive_file:
+            print(f"❌ {filename} not found on Drive.")
+            continue
+
+        drive_time = datetime.strptime(drive_file['modifiedTime'], "%Y-%m-%dT%H:%M:%S.%fZ")
+        local_path = TMP_DIR / filename
+
+        if not local_path.exists() or datetime.fromtimestamp(local_path.stat().st_mtime) < drive_time:
+            print(f"⬇️ Downloading latest {filename} from Drive...")
+            download_file_from_drive(drive_file["id"], local_path)
+            updated = True
+        else:
+            print(f"✅ Using cached {filename}")
+
+    return updated
+
+
+# === MAIN VIEW ===
+
+from django.views.decorators.csrf import csrf_exempt
+from django.views import View
+from django.http import HttpRequest
+
+@csrf_exempt
+def ensure_vector_files(request: HttpRequest):
+    """Ensure metadata.json and thesis_index.faiss are available for AI processing."""
+    try:
+        updated = check_and_download_latest_files()
+        return JsonResponse({
+            "status": "ok",
+            "updated": updated,
+            "message": "Vector store and metadata ready."
+        })
+    except Exception as e:
+        return JsonResponse({
+            "status": "error",
+            "message": str(e)
+        }, status=500)
+
+def classify_thesis_query(user_question, thesis_titles):
+    prompt = f"""
+You are a thesis assistant.
+
+Classify the user's question into one of the following intent types:
+- topic_search
+- thesis_summary
+- extract_section (e.g. abstract, conclusion, objectives)
+- methodology_analysis
+- author_info
+- literature_review
+- topic_suggestion
+- writing_help
+- translation
+- citation_request
+- critique
+- comparison
+- research_design
+- other
+
+Also return the title mentioned (if any), or keywords.
+
+User Question: "{user_question}"
+
+Available Thesis Titles:
+{json.dumps(thesis_titles)}
+
+Respond in JSON like:
+{{
+    "intent": "extract_section",
+    "title": "Smart Irrigation System for Urban Farming",
+    "section": "abstract",
+    "keywords": ["irrigation", "urban farming"]
+}}
+"""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=300
+        )
+        raw = response.choices[0].message.content.strip()
+
+        # Strip code fence if wrapped in markdown
+        if raw.startswith("```json"):
+            raw = raw.replace("```json", "").replace("```", "").strip()
+
+        if not raw.startswith("{"):
+            print("⚠️ GPT returned non-JSON:", raw[:100])
+            raise ValueError("Invalid response format from OpenAI")
+
+        return json.loads(raw)
+
+    except Exception as e:
+        print("❌ classify_thesis_query failed:", e)
+        return {
+            "intent": "general_info",
+            "title": "",
+            "keywords": []
+        }
+
+@csrf_exempt
+def ai_thesis_query_view(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST only."}, status=405)
+
+    try:
+        if request.content_type == "application/json":
+            data = json.loads(request.body)
+            question = data.get("message") or data.get("question") or ""
+        else:
+            question = request.POST.get("message", "") or request.POST.get("question", "")
+    except Exception as e:
+        return JsonResponse({"error": f"Invalid request format: {e}"}, status=400)
+
+    question = question.strip()
+    if not question:
+        return JsonResponse({"error": "Missing question."}, status=400)
+
+    # Basic OpenAI response without database
+    prompt = f"The user asked: '{question}'\nPlease respond helpfully as an academic research assistant."
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are an academic assistant for thesis research."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.5,
+            max_tokens=600
+        )
+        reply = response.choices[0].message.content.strip()
+        print("✅ OPENAI REPLY:", repr(reply))
+
+    except Exception as e:
+        return JsonResponse({"error": f"OpenAI error: {e}"}, status=500)
+
+    return JsonResponse({
+        "answer": reply,
+        "title_matched": None,
+        "intent": "general_info",
+        "loaded": False,
+        "options": []
+    })
+
+
+
+import json
+import os
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from dotenv import load_dotenv
+from openai import OpenAI
+
+# 🔐 Load OpenAI key from .env
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+ 
+'''    
+@csrf_exempt
+def basic_ai_view(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed."}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        message = data.get("message", "").strip()
+    except Exception as e:
+        return JsonResponse({"error": f"Invalid JSON: {e}"}, status=400)
+
+    if not message:
+        return JsonResponse({"error": "Message is required."}, status=400)
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a helpful academic assistant."},
+                {"role": "user", "content": message}
+            ],
+            temperature=0.5,
+            max_tokens=600
+        )
+        answer = response.choices[0].message.content.strip()
+        return JsonResponse({"answer": answer})
+    except Exception as e:
+        return JsonResponse({"error": f"OpenAI error: {e}"}, status=500)
+'''
+import json
+import re
+from openai import OpenAI
+from dotenv import load_dotenv
+import os
+from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
+from .models import Thesis
+
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+INTENT_CATEGORIES = [
+    "topic_search",
+    "thesis_summary",
+    "extract_section",
+    "methodology_analysis",
+    "author_info",
+    "literature_review",
+    "topic_suggestion",
+    "writing_help",
+    "translation",
+    "citation_request",
+    "critique",
+    "comparison",
+    "research_design",
+    "general_info"
+]
+
+def classify_intent(question, thesis_titles=None):
+    thesis_titles = thesis_titles or []
+
+    # 🧠 Add few-shot examples to help the model understand "Tell me more" requests
+    examples = """
+Example 1:
+User's Question: "Tell me more about 'Barangay Bolo Services Management Information System'"
+Response:
+{
+  "intent": "thesis_summary",
+  "title": "Barangay Bolo Services Management Information System",
+  "keywords": []
+}
+
+Example 2:
+User's Question: "Do you have titles that include 'pharmacy'?"
+Response:
+{
+  "intent": "topic_search",
+  "title": null,
+  "keywords": ["pharmacy"]
+}
+
+Example 3:
+User's Question: "How can I improve their study?"
+Response:
+{
+  "intent": "improvement_suggestion",
+  "title": null,
+  "keywords": []
+}
+
+
+Example 4:
+User's Question: "Summarize the findings in 'Student Portal for Lipa City Science Integrated National High School'"
+Response:
+{
+  "intent": "extract_section",
+  "title": "Student Portal for Lipa City Science Integrated National High School",
+  "keywords": [],
+  "subtype": "findings"
+}
+
+Example 5:
+User's Question: "What are the weaknesses of the thesis 'Barangay Masaguitsit Integrated Information Management System'?"
+Response:
+{
+  "intent": "critique",
+  "title": "Barangay Masaguitsit Integrated Information Management System",
+  "keywords": [],
+  "subtype": "weaknesses"
+}
+
+Example 6:
+User's Question: "Give me research problems about online learning"
+Response:
+{
+  "intent": "topic_suggestion",
+  "title": null,
+  "keywords": ["online learning"]
+}
+
+Example 7:
+User's Question: "Is this study qualitative or quantitative: 'Spartner: Web-Based Messaging App to Find Study Partner'?"
+Response:
+{
+  "intent": "research_design",
+  "title": "Spartner: Web-Based Messaging App to Find Study Partner",
+  "keywords": [],
+  "subtype": "type"
+}
+
+Example 8:
+User's Question: "Do you have a thesis with this title: Student Portal for Lipa City Science Integrated National High School"
+Response:
+{
+  "intent": "thesis_summary",
+  "title": "Student Portal for Lipa City Science Integrated National High School",
+  "keywords": [],
+  "subtype": null
+}
+
+"""
+
+    prompt = f"""
+You are a helpful academic assistant.
+
+Your task is to classify the user's question into one of the following intents:
+{', '.join(INTENT_CATEGORIES)}
+
+Also, if the user mentions a thesis title, extract it.
+If not, extract keywords instead.
+
+Respond in this JSON format:
+{{
+  "intent": "one_of_{INTENT_CATEGORIES}",
+  "title": "Title if clearly mentioned, else null",
+  "keywords": ["relevant", "keywords"]
+}}
+
+{examples}
+
+User's Question:
+"{question}"
+
+Known Thesis Titles:
+{json.dumps(thesis_titles[:100])}
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a thesis query classifier."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=300
+        )
+
+        content = response.choices[0].message.content.strip()
+
+        # ✅ NEW: Clean triple backticks if model wraps output like ```json ... ```
+        if content.startswith("```json"):
+            content = content.replace("```json", "").replace("```", "").strip()
+        elif content.startswith("```"):
+            content = content.replace("```", "").strip()
+
+        print(f"[KaAI CLASSIFIER RAW OUTPUT] {content}")  # 🧾 Debug print
+        return json.loads(content)
+
+    except Exception as e:
+        print(f"[KaAI DEBUG] JSON decode failed: {e}")
+        return {
+            "intent": "general_info",
+            "title": None,
+            "keywords": []
+        }
+
+@csrf_exempt
+def kaai_thesis_lookup(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST only"}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        message = data.get("message", "").strip()
+    except Exception as e:
+        return JsonResponse({"error": f"Invalid request: {e}"}, status=400)
+
+    if not message:
+        return JsonResponse({"error": "Missing message."}, status=400)
+
+    GREETING_ONLY = {"hi", "hello", "hey", "yo", "goodmorning", "goodafternoon", "good evening", "sup", "whats up"}
+    if message.lower() in GREETING_ONLY:
+        return JsonResponse({
+            "answer": "👋 Hello! How can I assist you today? You can ask me for thesis topics, summaries, or help with writing. Just let me know!",
+            "source": "greeting"
+        })
+
+    thesis_qs = Thesis.objects.all()
+    thesis_titles = [t.title for t in thesis_qs]
+    classification = classify_intent(message, thesis_titles=thesis_titles)
+
+    intent = classification.get("intent")
+    title = classification.get("title")
+
+    # If title wasn't detected, fallback to the last known matched thesis
+    if not title and "last_matched_thesis_id" in request.session:
+        try:
+            last_thesis = Thesis.objects.get(id=request.session["last_matched_thesis_id"])
+            title = last_thesis.title
+            print(f"[KaAI DEBUG] Fallback to last known title: {title}")
+        except Thesis.DoesNotExist:
+            print("[KaAI DEBUG] No valid last_matched_thesis_id in session.")
+
+    keywords = classification.get("keywords")
+    subtype = classification.get("subtype")
+
+    print(f"[KaAI DEBUG] Intent: {intent}\nTitle: {title}\nKeywords: {keywords}")
+
+    chat_history = request.session.get("chat_history", [])
+    chat_history.append({"user": message})
+    chat_history = chat_history[-5:]
+    request.session["chat_history"] = chat_history
+
+    # === If user mentioned exact or partial title ===
+    if title:
+        t = None
+        try:
+            t = Thesis.objects.get(title__iexact=title)
+        except Thesis.DoesNotExist:
+            candidates = Thesis.objects.filter(title__icontains=title)
+            t = candidates.first() if candidates.exists() else None
+
+        if t:
+            request.session["last_matched_thesis_id"] = t.id
+            followup_prompt = f"""
+Please provide a detailed and helpful explanation about the following thesis:
+
+Title: {t.title}
+Authors: {t.authors}
+Program: {t.program.name}
+Year: {t.year}
+
+Abstract:
+{t.abstract}
+
+The user asked: '{message}'
+"""
+            ai = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a research assistant helping summarize and explain thesis projects."},
+                    {"role": "user", "content": followup_prompt}
+                ],
+                temperature=0.5,
+                max_tokens=900
+            )
+            return JsonResponse({
+                "answer": ai.choices[0].message.content.strip(),
+                "title_matched": t.title,
+                "source": "openai_title_summary"
+            })
+        else:
+            print(f"[KaAI DEBUG] No thesis matched for title: {title}")
+
+    # === Keyword-based match ===
+    keyword_matches = [t for t in thesis_qs if any(kw in t.title.lower() for kw in keywords)] if keywords else []
+    if keyword_matches:
+        request.session["last_matched_thesis_id"] = keyword_matches[0].id
+        response_text = "Here are some theses that match your query:\n"
+        for t in keyword_matches[:8]:
+            response_text += f"\n📁 \"{t.title}\"\n🕋️ by {t.authors}\n📚 {t.program.name} ({t.year})\n<button class='quick-followup' data-title=\"{t.title}\">\ud83d\udcc4 Tell me more</button>\n"
+        print(f"[KaAI DEBUG] Keyword-based matches: {len(keyword_matches)}")
+        return JsonResponse({
+            "answer": response_text.strip(),
+            "source": "db_keyword_match",
+            "title_matched": keyword_matches[0].title
+        })
+
+    # === Generic handler for intent-based follow-ups (summary, methodology, etc.) ===
+    INTENT_PROMPTS = {
+        "thesis_summary": "You are a research assistant. The user is asking for a summary of a specific thesis.",
+        "methodology_analysis": "You are a research assistant. The user is asking about the methodology of a specific thesis. Only respond with methodology details.",
+        "author_info": "You are a research assistant. The user is asking who the authors of a specific thesis are. Just return the authors and nothing else.",
+        "tech_stack": "You are a research assistant. The user wants to know what technologies were used to develop this thesis project. Respond only with the tech stack or platform mentioned.",
+
+        "extract_section::findings": "Extract and summarize the findings of the thesis below.",
+        "extract_section::abstract": "Provide the abstract of the thesis below.",
+        "extract_section::conclusion": "Return the conclusion of the thesis below.",
+        "extract_section::objectives": "State the objectives of the thesis below.",
+        "critique::weaknesses": "What are the weaknesses or limitations of this study?",
+        "critique::strengths": "List the strengths or advantages of this research.",
+        "research_design::type": "Identify whether the thesis is qualitative, quantitative, or mixed-method.",
+        "improvement_suggestion": "Suggest improvements to strengthen the thesis below.",
+
+        "critique:limitations": "You are a research assistant. The user is asking about the **limitations** of a specific thesis. Only extract and explain the limitations.",
+        "extract_section:findings": "You are a research assistant. The user is asking for the **findings** section of a specific thesis. Respond with that section only.",
+        "extract_section:abstract": "You are a research assistant. The user is asking for the abstract of a specific thesis. Respond with just the abstract.",
+        "research_design:type": "You are a research assistant. The user wants to know if this is a qualitative, quantitative, or mixed-method study. Only say the type and give a brief justification.",
+
+        "extract_section:significance": "The user is asking about the significance of a specific thesis. Extract the significance and explain its importance in the context of the community, education, or technology.",
+        
+    }
+
+    intent_key = f"{intent}::{subtype}" if subtype else intent
+    if intent_key in INTENT_PROMPTS and "last_matched_thesis_id" in request.session:
+
+        try:
+            t = Thesis.objects.get(id=request.session["last_matched_thesis_id"])
+            followup_prompt = f"""
+{INTENT_PROMPTS[intent_key]}
+
+
+Title: {t.title}
+Authors: {t.authors}
+Program: {t.program.name}
+Year: {t.year}
+
+Abstract:
+{t.abstract}
+
+User message: '{message}'
+"""
+            ai = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": INTENT_PROMPTS[intent]},
+                    {"role": "user", "content": followup_prompt}
+                ],
+                temperature=0.4,
+                max_tokens=900
+            )
+            return JsonResponse({
+                "answer": ai.choices[0].message.content.strip(),
+                "source": f"followup_openai_{intent}"
+            })
+        except Thesis.DoesNotExist:
+            print(f"[KaAI DEBUG] Could not retrieve thesis for intent: {intent}")
+
+    # === Fallback ===
+    combined_context = "\n".join([f"User: {m['user']}" for m in chat_history])
+    fallback_prompt = f"{combined_context}\nUser: {message}\nPlease answer helpfully as a research assistant."
+
+    ai = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a helpful academic assistant."},
+            {"role": "user", "content": fallback_prompt}
+        ],
+        temperature=0.5,
+        max_tokens=900
+    )
+    print("[KaAI DEBUG] Fallback triggered.")
+    return JsonResponse({
+        "answer": ai.choices[0].message.content.strip(),
+        "source": "openai_fallback"
+    })

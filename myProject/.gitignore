@@ -1,14 +1,59 @@
+# Python artifacts
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.pkl
+*.egg-info/
+*.egg
+
+# Environment / package managers
 .env
-credentials/"myProject/Miniconda3-latest-Linux-x86_64.sh" 
-# Avoid committing temp/cache folders
+.venv/
+env/
+venv/
+Pipfile.lock
+poetry.lock
+
+# Django-specific
+*.sqlite3
+db.sqlite3
+/media/
+staticfiles/
+*.log
+
+# AI vector/data storage
 *.faiss
 *.json
 *.pdf
-*.pkl
-/tmp/
+*.csv
+*.npy
+*.bin
+*.ckpt
 vector_store/
-__pycache__/
+tmp/
+temp/
+temp_vector/
+*.db
 
-# Ignore credentials directory
-myProject/credentials/
+# VS Code and other IDEs
+.vscode/
+.idea/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# System restore + redis
 dump.rdb
+
+# Shell script installer
+credentials/myProject/Miniconda3-latest-Linux-x86_64.sh
+
+# Custom folders
+myProject/credentials/
+
+# Uploads and output folders
+uploads/
+outputs/

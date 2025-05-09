@@ -16,7 +16,6 @@ from myApp.scripts.vector_cache import (
     get_latest_file_by_prefix,
     download_drive_file,  # ✅ Use this name (matches your recent vector_cache)
 )
-from myApp.scripts.embedding_utils import embed_text, chunk_text
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -128,3 +127,4 @@ def process_thesis_task(thesis_id, version="v2"):
         print(f"❌ Thesis with ID {thesis_id} not found.")
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
+

@@ -314,6 +314,20 @@
   overflow-y: auto;
 }
 
+.quick-followup {
+  display: inline-block;
+  margin-top: 5px;
+  background: #eef;
+  border: 1px solid #aac;
+  padding: 5px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.quick-followup:hover {
+  background: #dde;
+}
+
 
 </style>
 {% include "partials/logged_in_header.html" %}
@@ -376,206 +390,209 @@
 </div>
 
 <script>
-  const chatBox = document.getElementById('chat-box');
-  const chatForm = document.getElementById('chat-form');
-  const chatInput = document.getElementById('chat-input');
-  const fileInput = document.getElementById('chat-file');
-  const filePreview = document.getElementById('file-name-preview');
-  
-  function getCSRFToken() {
-    return document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-  }
-  
-  function formatReply(html) {
-  let decoded = html;
-  decoded = decoded.replace(/\n/g, '<br>');
-  decoded = decoded.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  decoded = decoded.replace(/==(.+?)==/g, '<mark>$1</mark>');
-  decoded = decoded.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-  decoded = decoded.replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>');
-  decoded = decoded.replace(/!!(.*?)!!/g, '<span class="spoiler" onclick="this.classList.toggle(\'revealed\')">[spoiler]</span><span class="spoiler-content">$1</span>');
+const chatBox = document.getElementById('chat-box');
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
 
-  // 🎯 Enhance thesis citation formatting with a "Load This File" button
-  decoded = decoded.replace(
-    /📁 Title: "(.*?)"<br>🖋️ by (.*?)<br>📚 (.*?) \((\d{4})\)<br>🔗 \[View File\]\((.*?)\)/g,
-    `<div class="citation-box">
-      <div><span class="archive-label">📁</span> <strong>Title:</strong> "$1"</div>
-      <div><strong>🖋️ Author:</strong> <span class="byline">$2</span></div>
-      <div><strong>📚 Program:</strong> $3 | <strong>Year:</strong> $4</div>
-      <a class="view-link" href="$5" target="_blank">🔗 View Full Thesis</a><br>
-      <button class="load-file-btn" data-url="$5">📄 Load This File</button>
-    </div>`
-  );
-
-  return decoded;
+function getCSRFToken() {
+  return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 }
 
-  
-  function appendMessage(sender, message) {
-    const msgWrapper = document.createElement('div');
-    if (sender === 'Bot') {
-      msgWrapper.className = 'message bot has-avatar';
-      const avatar = document.createElement('div');
-      avatar.className = 'chat-head-embed';
-      const textDiv = document.createElement('div');
-      textDiv.className = 'bot-text';
-      msgWrapper.appendChild(avatar);
-      msgWrapper.appendChild(textDiv);
-      chatBox.appendChild(msgWrapper);
-      chatBox.scrollTop = chatBox.scrollHeight;
-      typeEffect(textDiv, formatReply(message));
-    } else {
-      msgWrapper.className = 'message user';
-      msgWrapper.innerText = message;
-      chatBox.appendChild(msgWrapper);
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
-  }
-  
-  function showTypingIndicator() {
-    const typingDiv = document.createElement('div');
-    typingDiv.className = 'message bot typing-indicator has-avatar';
-    typingDiv.id = 'typing-indicator';
+function formatReply(html) {
+  if (!html || typeof html !== 'string') return '';
+  return html
+    .replace(/\n/g, '<br>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/==(.+?)==/g, '<mark>$1</mark>')
+    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+    .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>');
+}
+// Keep track of last clicked or shown thesis for follow-ups
+let lastMatchedThesis = "";
+
+function appendMessage(sender, message) {
+  const msgWrapper = document.createElement('div');
+  msgWrapper.className = sender === 'Bot' ? 'message bot has-avatar' : 'message user';
+
+  if (sender === 'Bot') {
     const avatar = document.createElement('div');
     avatar.className = 'chat-head-embed';
     const textDiv = document.createElement('div');
     textDiv.className = 'bot-text';
-    textDiv.innerHTML = `
-      <div class="analyzing-text">Analyzing...</div>
-      <div class="typing-dots">
-        <span></span><span></span><span></span>
-      </div>`;
-    typingDiv.appendChild(avatar);
-    typingDiv.appendChild(textDiv);
-    chatBox.appendChild(typingDiv);
+    msgWrapper.appendChild(avatar);
+    msgWrapper.appendChild(textDiv);
+    chatBox.appendChild(msgWrapper);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    typeEffect(textDiv, formatReply(message));
+  } else {
+    msgWrapper.innerText = message;
+    chatBox.appendChild(msgWrapper);
     chatBox.scrollTop = chatBox.scrollHeight;
   }
-  
-  function hideTypingIndicator() {
-    const typing = document.getElementById('typing-indicator');
-    if (typing) typing.remove();
+}
+
+// Update form submission
+
+
+function showTypingIndicator() {
+  const typingDiv = document.createElement('div');
+  typingDiv.className = 'message bot typing-indicator has-avatar';
+  typingDiv.id = 'typing-indicator';
+  typingDiv.innerHTML = `
+    <div class="chat-head-embed"></div>
+    <div class="bot-text">
+      <div class="analyzing-text">Thinking...</div>
+      <div class="typing-dots"><span></span><span></span><span></span></div>
+    </div>`;
+  chatBox.appendChild(typingDiv);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function hideTypingIndicator() {
+  const typing = document.getElementById('typing-indicator');
+  if (typing) typing.remove();
+}
+
+function typeEffect(textDiv, html, speed = 15) {
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+  const nodes = Array.from(tempDiv.childNodes);
+  textDiv.innerHTML = '';
+  let i = 0;
+  function typeNextNode() {
+    if (i >= nodes.length) return;
+    textDiv.appendChild(nodes[i++]);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    setTimeout(typeNextNode, speed * 5);
   }
-  
-  function typeEffect(textDiv, html, speed = 15, callback = null) {
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = html;
-    const nodes = Array.from(tempDiv.childNodes);
-    textDiv.innerHTML = '';
-    let i = 0;
-    function typeNextNode() {
-      if (i >= nodes.length) return callback && callback();
-      const node = nodes[i++];
-      textDiv.appendChild(node);
-      chatBox.scrollTop = chatBox.scrollHeight;
-      setTimeout(typeNextNode, speed * 5);
-    }
-    typeNextNode();
-  }
-  
-  window.addEventListener('DOMContentLoaded', () => {
-    appendMessage('Bot', "👋 Hello! I'm KaAI — your thesis buddy! What can I help you with today? Feel free to ask about formatting, defense prep, or anything thesis-related.");
-  });
-  
-  fileInput.addEventListener('change', () => {
-    filePreview.textContent = fileInput.files.length ? fileInput.files[0].name : '';
-  });
-  
-  // ✅ Shift+Enter = new line | Enter = submit
-chatInput.addEventListener('keydown', function (e) {
+  typeNextNode();
+}
+
+chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    chatForm.requestSubmit(); // simulate form submission
+    chatForm.requestSubmit();
   }
 });
 
-// ✅ Auto-resize textarea as you type
 chatInput.addEventListener('input', () => {
   chatInput.style.height = 'auto';
   chatInput.style.height = chatInput.scrollHeight + 'px';
 });
 
-// ✅ Submit chat form (Enter key triggers this)
+
+
 chatForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const userMessage = chatInput.value.trim();
-  const file = fileInput.files[0];
+  if (!userMessage) return;
 
-  if (!userMessage && !file) {
-    alert("Please enter a message or upload a file.");
-    return;
-  }
-
-  appendMessage('You', `${userMessage}${file ? `\n📎 Attached: ${file.name}` : ''}`);
+  appendMessage('You', userMessage);
   chatInput.value = '';
   chatInput.style.height = 'auto';
-  fileInput.value = '';
-  filePreview.textContent = '';
+
   showTypingIndicator();
 
   try {
-    const formData = new FormData();
-    formData.append('message', userMessage);
-    if (file) formData.append('file', file);
-
-    const response = await fetch('/chatbot_app/chat/', {
-      method: 'POST',
-      headers: {
-        'X-CSRFToken': getCSRFToken()
-      },
-      body: formData
-    });
-
-    const data = await response.json();
-    hideTypingIndicator();
-
-    // 📄 Subtle feedback when KaAI lazily scans from GDrive
-    if (data.file_scanned) {
-      appendMessage('Bot', "📄 Just a moment... I'm reading the thesis you asked about. 🧠");
-    }
-
-    setTimeout(() => {
-      appendMessage('Bot', data.reply);
-    }, 400);
-
-  } catch (err) {
-    console.error(err);
-    hideTypingIndicator();
-    appendMessage('Bot', '⚠️ Something went wrong.');
-  }
-});
-
-
-
-  document.getElementById('new-chat-btn').addEventListener('click', () => {
-  if (confirm("Start a new chat? This will clear your current conversation.")) {
-    chatBox.innerHTML = '';
-    appendMessage('Bot', "👋 Hello! I'm KaAI — your thesis buddy! What can I help you with today? Feel free to ask about formatting, defense prep, or anything thesis-related.");
-  }
-});
-
-chatBox.addEventListener('click', async (e) => {
-  if (e.target.classList.contains('load-file-btn')) {
-    const url = e.target.getAttribute('data-url');
-    appendMessage('Bot', '📄 Just a moment... I\'m reading the thesis you selected.');
-    showTypingIndicator();
-
-    const response = await fetch('/chatbot_app/chat/', {
+    const res = await fetch('/kaai-thesis/', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': getCSRFToken()
       },
-      body: JSON.stringify({
-        message: "Load this thesis file.",
-        gdrive_url: url
-      })
+      body: JSON.stringify({ message: userMessage })
     });
 
-    const data = await response.json();
+    const data = await res.json();
     hideTypingIndicator();
-    appendMessage('Bot', data.reply);
+
+    if (data.answer) {
+      appendMessage('Bot', data.answer);
+    } else {
+      appendMessage('Bot', '⚠️ No response received from the AI.');
+    }
+  } catch (err) {
+    console.error(err);
+    hideTypingIndicator();
+    appendMessage('Bot', '⚠️ Something went wrong. Try again.');
+  }
+
+  if (e.target.classList.contains('quick-followup')) {
+    const title = e.target.getAttribute('data-title');
+    if (!title) return;
+
+    appendMessage('You', `Tell me more about ${title}`);
+    showTypingIndicator();
+
+    try {
+      const response = await fetch('/kaai-thesis/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCSRFToken()
+        },
+        body: JSON.stringify({
+          message: `Tell me more about ${title}`
+        })
+      });
+
+      const data = await response.json();
+      hideTypingIndicator();
+      appendMessage('Bot', data.answer);
+    } catch (err) {
+      console.error('Follow-up error:', err);
+      hideTypingIndicator();
+      appendMessage('Bot', '⚠️ Something went wrong while fetching more info.');
+    }
   }
 });
+
+document.getElementById('new-chat-btn').addEventListener('click', () => {
+  if (confirm('Start a new chat?')) {
+    chatBox.innerHTML = '';
+    appendMessage('Bot', "👋 Hello! I'm KaAI — your thesis buddy! Ask me anything.");
+  }
+});
+
+window.addEventListener('DOMContentLoaded', () => {
+  appendMessage('Bot', "👋 Hello! I'm KaAI — your thesis buddy! What can I help you with today?");
+});
+chatBox.addEventListener('click', async (e) => {
+  if (e.target.classList.contains('quick-followup')) {
+    const title = e.target.getAttribute('data-title');
+
+    appendMessage('You', `Tell me more about "${title}"`);
+    showTypingIndicator();
+
+    try {
+      const response = await fetch('/kaai-thesis/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCSRFToken()
+        },
+        body: JSON.stringify({
+          message: `Tell me more about "${title}"`
+        })
+      });
+
+      const data = await response.json();
+      hideTypingIndicator();
+
+      if (data.answer) {
+        appendMessage('Bot', data.answer);
+      } else {
+        appendMessage('Bot', "⚠️ Sorry, I couldn’t retrieve more details for that thesis.");
+      }
+
+    } catch (err) {
+      console.error("Error handling quick follow-up:", err);
+      hideTypingIndicator();
+      appendMessage('Bot', '⚠️ Something went wrong while fetching more details.');
+    }
+  }
+});
+
 
 
   </script>

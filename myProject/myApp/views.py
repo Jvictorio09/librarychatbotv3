@@ -786,11 +786,34 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-TMP_DIR = Path(tempfile.gettempdir())
-SERVICE_ACCOUNT_FILE = "credentials/gdrive_service.json"
+import os
+import json
+import tempfile
+from pathlib import Path
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+# Set your Google Drive API scopes
 SCOPES = ["https://www.googleapis.com/auth/drive"]
-credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+
+# Create a temporary directory
+TMP_DIR = Path(tempfile.gettempdir())
+
+# Load the service account JSON from environment variable
+service_account_info = json.loads(os.environ["GDRIVE_SERVICE_JSON"])
+
+# Write it to a temp file for Google API compatibility
+with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as temp_file:
+    json.dump(service_account_info, temp_file)
+    temp_file.flush()  # Make sure the file is written
+    SERVICE_ACCOUNT_FILE = temp_file.name
+
+# Initialize credentials and the Drive API client
+credentials = service_account.Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE, scopes=SCOPES
+)
 drive_service = build("drive", "v3", credentials=credentials)
+
 
 VECTOR_FOLDER_NAME = "ja_vector_store"
 FILES = {
@@ -1047,6 +1070,11 @@ INTENT_CATEGORIES = [
     "comparison",
     "research_design",
     "general_info"
+
+    "summary_request",
+    "general_writing",
+    "translation",
+    "paraphrase",
 ]
 
 def classify_intent(question, thesis_titles=None):
@@ -1130,6 +1158,27 @@ Response:
   "keywords": [],
   "subtype": null
 }
+
+Example 9:
+User's Question: "Can you give me 3 citations they have on their study?"
+Response:
+{
+  "intent": "extract_section",
+  "title": null,
+  "keywords": [],
+  "subtype": "references"
+}
+
+Example 10:
+User's Question: "Can you summarize the research titled 'Effects of Microplastics on Marine Life'?"
+Response:
+{
+  "intent": "summary_request",
+  "title": "Effects of Microplastics on Marine Life",
+  "keywords": []
+}
+
+
 
 """
 
@@ -1215,6 +1264,22 @@ def kaai_thesis_lookup(request):
 
     intent = classification.get("intent")
     title = classification.get("title")
+    keywords = classification.get("keywords")
+    subtype = classification.get("subtype")
+    keyword_matches = []
+
+    if intent == "topic_search" and keywords:
+        keyword_matches = [t for t in thesis_qs if any(kw in t.title.lower() for kw in keywords)]
+    if keyword_matches:
+        request.session["last_matched_thesis_id"] = keyword_matches[0].id
+        response_text = "Here are some theses that match your query:\n"
+        for t in keyword_matches[:8]:
+            response_text += f"\n📁 \"{t.title}\"\n🕋️ by {t.authors}\n📚 {t.program.name} ({t.year})\n<button class='quick-followup' data-title=\"{t.title}\">📄 Tell me more</button>\n"
+        return JsonResponse({
+            "answer": response_text.strip(),
+            "source": "db_keyword_match",
+            "title_matched": keyword_matches[0].title
+        })
 
     # If title wasn't detected, fallback to the last known matched thesis
     if not title and "last_matched_thesis_id" in request.session:
@@ -1225,8 +1290,7 @@ def kaai_thesis_lookup(request):
         except Thesis.DoesNotExist:
             print("[KaAI DEBUG] No valid last_matched_thesis_id in session.")
 
-    keywords = classification.get("keywords")
-    subtype = classification.get("subtype")
+
 
     print(f"[KaAI DEBUG] Intent: {intent}\nTitle: {title}\nKeywords: {keywords}")
 
@@ -1246,7 +1310,23 @@ def kaai_thesis_lookup(request):
 
         if t:
             request.session["last_matched_thesis_id"] = t.id
-            followup_prompt = f"""
+
+            # 🧠 Lazy load and cache the full thesis content
+            if t.gdrive_url:
+                cached_text = request.session.get("cached_pdf_text")
+                if not cached_text:
+                    pdf_path = download_pdf_to_temp(t.gdrive_url)
+                    if pdf_path:
+                        full_text = extract_text_from_pdf(pdf_path)
+                        os.remove(pdf_path)
+                        request.session["cached_pdf_text"] = full_text
+                        print("[KaAI DEBUG] PDF cached for follow-up.")
+                    else:
+                        print("[KaAI DEBUG] Failed to download PDF for caching.")
+                else:
+                    print("[KaAI DEBUG] Using cached PDF content for follow-up.")
+
+        followup_prompt = f"""
 Please provide a detailed and helpful explanation about the following thesis:
 
 Title: {t.title}
@@ -1259,22 +1339,24 @@ Abstract:
 
 The user asked: '{message}'
 """
-            ai = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are a research assistant helping summarize and explain thesis projects."},
-                    {"role": "user", "content": followup_prompt}
-                ],
-                temperature=0.5,
-                max_tokens=900
-            )
-            return JsonResponse({
-                "answer": ai.choices[0].message.content.strip(),
-                "title_matched": t.title,
-                "source": "openai_title_summary"
-            })
-        else:
-            print(f"[KaAI DEBUG] No thesis matched for title: {title}")
+
+        ai = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a research assistant helping summarize and explain thesis projects."},
+                {"role": "user", "content": followup_prompt}
+            ],
+            temperature=0.5,
+            max_tokens=900
+        )
+        return JsonResponse({
+            "answer": ai.choices[0].message.content.strip(),
+            "title_matched": t.title,
+            "source": "openai_title_summary"
+        })
+    else:
+        print(f"[KaAI DEBUG] No thesis matched for title: {title}")
+
 
     # === Keyword-based match ===
     keyword_matches = [t for t in thesis_qs if any(kw in t.title.lower() for kw in keywords)] if keywords else []
@@ -1315,7 +1397,101 @@ The user asked: '{message}'
         
     }
 
+    GENERAL_HELPER_PROMPTS = {
+    "summary_request": "You are a research assistant. Summarize the study title or topic provided.",
+    "general_writing": "You are an academic coach. Help the user write or improve their research document.",
+    "translation": "You are a language translator. Translate the content clearly and professionally.",
+    "paraphrase": "You are a skilled paraphraser. Rewrite the given content in simpler or more professional terms.",
+    "topic_suggestion": "You are a thesis coach. Suggest 5 research titles or problems related to the topic.",
+}
+
+
     intent_key = f"{intent}::{subtype}" if subtype else intent
+
+    DEEP_PDF_SUBTYPES = {
+        "significance", "scope", "limitations", "references", "research_gap", "assumptions",
+        "strengths", "weaknesses", "sampling", "statistical_tools", "variables",
+        "research_questions", "framework", "main_theme", "concepts", "arguments",
+        "hypotheses", "author_background", "respondents", "instruments", "process",
+        "chapter_outline", "data_analysis_chapter"
+    }
+
+    if intent in GENERAL_HELPER_PROMPTS:
+        followup_prompt = f"""
+    {GENERAL_HELPER_PROMPTS[intent]}
+
+    User message: '{message}'
+    """
+        ai = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": GENERAL_HELPER_PROMPTS[intent]},
+                {"role": "user", "content": followup_prompt}
+            ],
+            temperature=0.5,
+            max_tokens=800
+        )
+        return JsonResponse({
+            "answer": ai.choices[0].message.content.strip(),
+            "source": f"general_{intent}"
+        })
+
+
+
+    if intent == "extract_section" or (intent in {"critique", "research_design", "citation_request"} and subtype in DEEP_PDF_SUBTYPES):
+        try:
+            t = Thesis.objects.get(id=request.session["last_matched_thesis_id"])
+            if not t.gdrive_url:
+                return JsonResponse({
+                    "answer": "This thesis has no file available for content lookup.",
+                    "source": "missing_file"
+                })
+
+            # ⛳️ ⬇️ INSERT THIS BLOCK HERE
+            full_text = request.session.get("cached_pdf_text")
+
+            if not full_text:
+                pdf_path = download_pdf_to_temp(t.gdrive_url)
+                if not pdf_path:
+                    return JsonResponse({
+                        "answer": "Sorry, I couldn't fetch the thesis document right now.",
+                        "source": "download_failed"
+                    })
+
+                full_text = extract_text_from_pdf(pdf_path)
+                os.remove(pdf_path)
+                request.session["cached_pdf_text"] = full_text
+
+            prompt = f"""
+You are a research assistant. Based on the full thesis content below, extract and explain the **{subtype}**.
+
+Title: {t.title}
+Authors: {t.authors}
+Program: {t.program.name}
+Year: {t.year}
+
+--- FULL THESIS TEXT START ---
+{full_text}
+--- FULL THESIS TEXT END ---
+"""
+            ai = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=850
+            )
+            return JsonResponse({
+                "answer": ai.choices[0].message.content.strip(),
+                "source": f"lazy_pdf::{subtype}"
+            })
+
+        except Exception as e:
+            print(f"[KaAI ERROR] Lazy PDF extract failed: {e}")
+            return JsonResponse({
+                "answer": "Something went wrong while reading the file.",
+                "source": "pdf_parse_error"
+            })
+
     if intent_key in INTENT_PROMPTS and "last_matched_thesis_id" in request.session:
 
         try:
@@ -1337,7 +1513,7 @@ User message: '{message}'
             ai = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": INTENT_PROMPTS[intent]},
+                    {"role": "system", "content": INTENT_PROMPTS[intent_key]},
                     {"role": "user", "content": followup_prompt}
                 ],
                 temperature=0.4,
@@ -1368,3 +1544,36 @@ User message: '{message}'
         "answer": ai.choices[0].message.content.strip(),
         "source": "openai_fallback"
     })
+
+
+import tempfile
+import fitz  # PyMuPDF
+import requests
+
+def download_pdf_to_temp(gdrive_url):
+    """Download the PDF from Google Drive link into a temp file and return its path."""
+    try:
+        response = requests.get(gdrive_url)
+        if response.status_code == 200:
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+            temp_file.write(response.content)
+            temp_file.flush()
+            return temp_file.name
+        else:
+            print(f"[KaAI DEBUG] Failed to download PDF: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"[KaAI ERROR] Exception in download_pdf_to_temp: {e}")
+        return None
+
+def extract_text_from_pdf(pdf_path):
+    """Extract plain text from the entire PDF using PyMuPDF."""
+    text = ""
+    try:
+        with fitz.open(pdf_path) as doc:
+            for page in doc:
+                text += page.get_text()
+        return text
+    except Exception as e:
+        print(f"[KaAI ERROR] Failed to extract text: {e}")
+        return ""

@@ -829,9 +829,21 @@ with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as tem
     SERVICE_ACCOUNT_FILE = temp_file.name
 
 # Initialize credentials and the Drive API client
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES
+import os
+import json
+from google.oauth2 import service_account
+
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+GDRIVE_JSON_STRING = os.getenv("GDRIVE_SERVICE_JSON")
+
+if not GDRIVE_JSON_STRING:
+    raise ValueError("Missing GDRIVE_SERVICE_JSON environment variable")
+
+service_account_info = json.loads(GDRIVE_JSON_STRING)
+credentials = service_account.Credentials.from_service_account_info(
+    service_account_info, scopes=SCOPES
 )
+
 drive_service = build("drive", "v3", credentials=credentials)
 
 
@@ -1034,12 +1046,23 @@ from googleapiclient.http import MediaIoBaseDownload
 import os
 from google.oauth2 import service_account
 
-SERVICE_ACCOUNT_FILE = os.getenv("GDRIVE_SERVICE_JSON")
-SCOPES = ["https://www.googleapis.com/auth/drive"]
+ 
 
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES
+import os
+import json
+from google.oauth2 import service_account
+
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+GDRIVE_JSON_STRING = os.getenv("GDRIVE_SERVICE_JSON")
+
+if not GDRIVE_JSON_STRING:
+    raise ValueError("Missing GDRIVE_SERVICE_JSON environment variable")
+
+service_account_info = json.loads(GDRIVE_JSON_STRING)
+credentials = service_account.Credentials.from_service_account_info(
+    service_account_info, scopes=SCOPES
 )
+
 
 drive_service = build("drive", "v3", credentials=credentials)
 

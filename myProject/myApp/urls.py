@@ -45,7 +45,7 @@ urlpatterns = [
     #path('basic-ai/', views.basic_ai_view, name='basic_ai'),
 
     path('kaai-thesis/', views.kaai_thesis_lookup, name='kaai_thesis'),
-
+    path('kaai-thesis-lookup/', views.kaai_thesis_lookup, name='kaai_thesis'),
     path('kaai-user-upload/', views.kaai_user_upload, name='kaai_user_upload'),
 
     path('student/library/', views.student_thesis_library, name='student_thesis_library'),
